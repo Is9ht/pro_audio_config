@@ -163,7 +163,19 @@ pro_audio_config/
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests, report bugs, or suggest new features.
+Contributions are welcome! Please feel free to submit pull requests, report bugs, or suggest new features.  
+
+See [CONTRIBUTING](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/CONTRIBUTING.md) file for details.  
+
+For contact please see my email in profile info or use GitHub’s built-in communication tools.
+
+Please open an issue or pull request for any:  
+
+- Bug fixes
+    
+- Feature suggestions
+    
+- Documentation improvements
 
 ### Development Setup
 1. Fork the repository
