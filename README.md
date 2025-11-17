@@ -165,7 +165,7 @@ pro_audio_config/
 
 Contributions are welcome! Please feel free to submit pull requests, report bugs, or suggest new features.  
 
-See [CONTRIBUTING](https://github.com/Peter-L-SVK/PyLine/blob/main/CONTRIBUTING.md) file for details.  
+See [CONTRIBUTING](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/CONTRIBUTING.md) file for details.  
 
 For contact please see my email in profile info or use GitHub’s built-in communication tools.
 
