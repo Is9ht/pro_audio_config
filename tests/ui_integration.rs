@@ -1,21 +1,23 @@
 //! Integration tests for UI components
 
-use pro_audio_config::{AudioSettings, show_error_dialog, show_success_dialog};
+use pro_audio_config::audio::AudioSettings;
+use pro_audio_config::ui::{show_error_dialog, show_success_dialog};
 
 #[test]
 fn test_audio_settings_struct_ui_integration() {
     // Test that AudioSettings works well with UI data flow
-    let settings = AudioSettings::new(48000, 24, 512);
+    let settings = AudioSettings::new(48000, 24, 512, "default".to_string());
     
     // Simulate UI data passing
     let settings_clone = settings.clone();
     assert_eq!(settings.sample_rate, settings_clone.sample_rate);
     
     // Test that settings can be used in UI context
-    let label_text = format!("{} Hz / {} bit / {} samples", 
-        settings.sample_rate, settings.bit_depth, settings.buffer_size);
+    let label_text = format!("{} Hz / {} bit / {} samples / {}", 
+        settings.sample_rate, settings.bit_depth, settings.buffer_size, settings.device_id);
     assert!(!label_text.is_empty());
     assert!(label_text.contains("48000"));
+    assert!(label_text.contains("default"));
 }
 
 #[test]
@@ -26,6 +28,9 @@ fn test_dialog_functions_exist() {
         if gtk::is_initialized() {
             show_error_dialog("Test error message");
             show_success_dialog("Test success message");
+        } else {
+            // Skip test if GTK not initialized (common in CI environments)
+            println!("GTK not initialized, skipping dialog test");
         }
     });
     
@@ -45,6 +50,7 @@ fn test_ui_string_formatting() {
         let formatted = format!("{} - {}", rate, label);
         assert!(!formatted.is_empty());
         assert!(formatted.contains(&rate.to_string()));
+        assert!(formatted.contains(label));
     }
     
     let buffer_sizes = vec![
@@ -57,6 +63,7 @@ fn test_ui_string_formatting() {
         let formatted = format!("{} - {}", size, label);
         assert!(!formatted.is_empty());
         assert!(formatted.contains(&size.to_string()));
+        assert!(formatted.contains(label));
     }
 }
 
@@ -84,9 +91,9 @@ fn test_combo_box_simulation() {
     let active_buffer_size = "512";
     
     // Verify selections exist in our simulated combo boxes
-    assert!(sample_rates.contains_key(active_sample_rate));
-    assert!(bit_depths.contains_key(active_bit_depth));
-    assert!(buffer_sizes.contains_key(active_buffer_size));
+    assert!(sample_rates.contains_key(active_sample_rate), "Sample rate {} not found", active_sample_rate);
+    assert!(bit_depths.contains_key(active_bit_depth), "Bit depth {} not found", active_bit_depth);
+    assert!(buffer_sizes.contains_key(active_buffer_size), "Buffer size {} not found", active_buffer_size);
     
     // Test parsing (like the real UI does)
     let sample_rate = active_sample_rate.parse::<u32>().unwrap();
@@ -104,16 +111,19 @@ fn test_audio_settings_from_simulated_ui() {
     let sample_rate = "48000".parse::<u32>().ok().unwrap_or(44100);
     let bit_depth = "24".parse::<u32>().ok().unwrap_or(16);
     let buffer_size = "512".parse::<u32>().ok().unwrap_or(256);
+    let device_id = "default".to_string();
     
     let settings = AudioSettings {
         sample_rate,
         bit_depth,
         buffer_size,
+        device_id,
     };
     
     assert_eq!(settings.sample_rate, 48000);
     assert_eq!(settings.bit_depth, 24);
     assert_eq!(settings.buffer_size, 512);
+    assert_eq!(settings.device_id, "default");
 }
 
 #[test]
@@ -126,4 +136,32 @@ fn test_fallback_values() {
     assert_eq!(invalid_sample_rate, 48000);
     assert_eq!(invalid_bit_depth, 24);
     assert_eq!(invalid_buffer_size, 512);
+}
+
+#[test]
+fn test_clean_device_description_helper() {
+    // Test the helper function logic (reimplemented since the original is private)
+    fn clean_device_description(description: &str) -> String {
+        description
+            .replace("SUSPENDED", "")
+            .replace("RUNNING", "")
+            .replace("IDLE", "")
+            .trim()
+            .trim_end_matches('-')
+            .trim()
+            .to_string()
+    }
+    
+    let test_cases = vec![
+        ("PipeWire s32le 4ch 192000Hz SUSPENDED", "PipeWire s32le 4ch 192000Hz"),
+        ("SUSPENDED PipeWire Device", "PipeWire Device"),
+        ("Device - RUNNING", "Device"),
+        ("Normal Device Description", "Normal Device Description"),
+        ("ALSA Device - IDLE", "ALSA Device"),
+    ];
+    
+    for (input, expected) in test_cases {
+        let result = clean_device_description(input);
+        assert_eq!(result, expected, "Failed for input: '{}'", input);
+    }
 }
