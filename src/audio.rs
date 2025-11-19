@@ -69,17 +69,96 @@ pub fn detect_all_audio_devices() -> Result<Vec<AudioDevice>, String> {
     Ok(devices)
 }
 
+fn is_real_hardware_device(device: &AudioDevice) -> bool {
+    let name = device.name.to_lowercase();
+    let description = device.description.to_lowercase();
+    
+    // Skip virtual devices and internal nodes
+    if name.contains("virtual") || 
+       description.contains("virtual") ||
+       name.contains("null") ||
+       description.contains("null") ||
+       name.contains("dummy") ||
+       description.contains("dummy") ||
+       name.contains("echo-cancel") ||
+       description.contains("echo-cancel") ||
+       name.contains("monitor") ||
+       description.contains("monitor") ||
+       name.contains("proaudio") || // Skip our own config nodes
+       description.contains("proaudio") {
+        return false;
+    }
+    
+    // Skip PipeWire internal nodes that aren't actual hardware
+    if device.id.starts_with("pipewire:") {
+        // Look for actual hardware indicators in PipeWire devices
+        if description.contains("internal") && 
+           !description.contains("usb") && 
+           !description.contains("hdmi") && 
+           !description.contains("analog") {
+            return false;
+        }
+        
+        // Skip nodes that are likely virtual or software-based
+        if name.contains("alsa_") && name.contains("playback") ||
+           name.contains("alsa_") && name.contains("capture") {
+            return false;
+        }
+    }
+    
+    // Skip ALSA devices that are virtual/dummy
+    if device.id.starts_with("alsa:") {
+        if name == "default" || 
+           name.contains("dmix") || 
+           name.contains("dsnoop") || 
+           name.contains("hw") || 
+           name.contains("plughw") || 
+           name.contains("lavrate") || 
+           name.contains("samplerate") || 
+           name.contains("speexrate") || 
+           name.contains("variable") || 
+           name.contains("rate_convert") || 
+           name.contains("linear") || 
+           name.contains("mu-law") || 
+           name.contains("a-law") || 
+           name.contains("float") || 
+           name.contains("oss") || 
+           name.contains("pulse") || 
+           name.contains("upmix") || 
+           name.contains("vdownmix") || 
+           name.contains("usbstream") {
+            return false;
+        }
+    }
+    
+    // Skip PulseAudio virtual devices
+    if device.id.starts_with("pulse:") {
+        if name.contains("module-") ||
+           description.contains("module-") ||
+           name == "auto_null" ||
+           description.contains("null output") {
+            return false;
+        }
+    }
+    
+    true
+}
+
 fn parse_pipewire_devices(output: &[u8]) -> Result<Vec<AudioDevice>, String> {
     let mut devices = Vec::new();
     let output_str = String::from_utf8_lossy(output);
     
     let mut current_device: Option<AudioDevice> = None;
+    let mut device_props: Vec<(String, String)> = Vec::new();
     
     for line in output_str.lines() {
         // Look for device nodes
         if line.contains("object:") && line.contains("Node") {
             if let Some(device) = current_device.take() {
-                devices.push(device);
+                // Only add if it's a real hardware device
+                if is_real_hardware_device(&device) {
+                    devices.push(device);
+                }
             }
             current_device = Some(AudioDevice {
                 name: "Unknown".to_string(),
@@ -88,6 +167,7 @@ fn parse_pipewire_devices(output: &[u8]) -> Result<Vec<AudioDevice>, String> {
                 device_type: DeviceType::Unknown,
                 available: true,
             });
+            device_props.clear();
         }
         
         // Parse device properties
@@ -104,7 +184,7 @@ fn parse_pipewire_devices(output: &[u8]) -> Result<Vec<AudioDevice>, String> {
                 }
             }
             
-            // Determine device type
+            // Determine device type with better classification
             if line.contains("media.class") && line.contains('=') {
                 if let Some(class) = line.split('=').nth(1) {
                     let class_clean = class.trim().trim_matches('"');
@@ -112,8 +192,31 @@ fn parse_pipewire_devices(output: &[u8]) -> Result<Vec<AudioDevice>, String> {
                         s if s.contains("Audio/Source") => DeviceType::Input,
                         s if s.contains("Audio/Sink") => DeviceType::Output,
                         s if s.contains("Audio/Duplex") => DeviceType::Duplex,
+                        s if s.contains("Audio") => {
+                            // For generic Audio class, try to determine from name/description
+                            if device.name.to_lowercase().contains("input") ||
+                               device.description.to_lowercase().contains("input") ||
+                               device.description.to_lowercase().contains("capture") {
+                                DeviceType::Input
+                            } else if device.name.to_lowercase().contains("output") ||
+                                      device.description.to_lowercase().contains("output") ||
+                                      device.description.to_lowercase().contains("playback") {
+                                DeviceType::Output
+                            } else {
+                                DeviceType::Unknown
+                            }
+                        }
                         _ => DeviceType::Unknown,
                     };
+                }
+            }
+            
+            // Store additional properties for better filtering
+            if line.contains('=') && !line.trim().starts_with('#') {
+                if let Some((key, value)) = line.split_once('=') {
+                    let key_clean = key.trim().to_string();
+                    let value_clean = value.trim().trim_matches('"').to_string();
+                    device_props.push((key_clean, value_clean));
                 }
             }
         }
@@ -121,7 +224,9 @@ fn parse_pipewire_devices(output: &[u8]) -> Result<Vec<AudioDevice>, String> {
     
     // Don't forget the last device
     if let Some(device) = current_device.take() {
-        devices.push(device);
+        if is_real_hardware_device(&device) {
+            devices.push(device);
+        }
     }
     
     Ok(devices)
@@ -153,7 +258,7 @@ fn parse_alsa_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice> 
     
     for line in output.lines() {
         if !line.starts_with(' ') && !line.is_empty() && line != "default" {
-            devices.push(AudioDevice {
+            let device = AudioDevice {
                 name: line.to_string(),
                 description: format!("ALSA {}", match device_type {
                     DeviceType::Input => "Input",
@@ -163,7 +268,12 @@ fn parse_alsa_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice> 
                 id: format!("alsa:{}", line),
                 device_type: device_type.clone(),
                 available: true,
-            });
+            };
+            
+            // Only add real hardware devices
+            if is_real_hardware_device(&device) {
+                devices.push(device);
+            }
         }
     }
     
@@ -196,7 +306,7 @@ fn parse_pulse_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice>
     for line in output.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
-            devices.push(AudioDevice {
+            let device = AudioDevice {
                 name: parts[1].to_string(),
                 description: if parts.len() >= 3 { 
                     parts[2..].join(" ") 
@@ -206,7 +316,12 @@ fn parse_pulse_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice>
                 id: format!("pulse:{}", parts[0]),
                 device_type: device_type.clone(),
                 available: true,
-            });
+            };
+            
+            // Only add real hardware devices
+            if is_real_hardware_device(&device) {
+                devices.push(device);
+            }
         }
     }
     
