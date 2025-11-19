@@ -344,19 +344,32 @@ pub fn detect_audio_device() -> Result<String, String> {
 }
 
 pub fn detect_current_audio_settings() -> Result<AudioSettings, String> {
+    println!("=== DEBUG: Starting audio settings detection ===");
+    
+    // Try PipeWire first
     if let Ok(output) = Command::new("pw-cli").args(["info", "0"]).output() {
+        println!("DEBUG: pw-cli command executed, status: {}", output.status);
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
+            println!("DEBUG: pw-cli output length: {} chars", output_str.len());
+            println!("DEBUG: First few lines of output:");
+            for line in output_str.lines().take(5) {
+                println!("DEBUG: {}", line);
+            }
+            
             let (sample_rate, bit_depth, buffer_size) = parse_pipewire_settings(&output_str);
+            println!("DEBUG: Parsed values - {}Hz/{}bit/{}samples", sample_rate, bit_depth, buffer_size);
             return Ok(AudioSettings::new(sample_rate, bit_depth, buffer_size, "default".to_string()));
+        } else {
+            println!("DEBUG: pw-cli failed with status: {}", output.status);
+            let error_output = String::from_utf8_lossy(&output.stderr);
+            println!("DEBUG: stderr: {}", error_output);
         }
+    } else {
+        println!("DEBUG: pw-cli command failed to execute");
     }
     
-    // Fallbacks
-    if Command::new("pactl").args(["info"]).output().is_ok() {
-        return Ok(AudioSettings::new(48000, 24, 512, "default".to_string()));
-    }
-    
+    println!("DEBUG: Falling back to default values");
     Ok(AudioSettings::new(48000, 24, 512, "default".to_string()))
 }
 
@@ -368,33 +381,35 @@ fn parse_pipewire_settings(output: &str) -> (u32, u32, u32) {
     for line in output.lines() {
         let trimmed = line.trim();
         
-        // Parse sample rate - look for exact match
-        if trimmed.starts_with("default.clock.rate =") && !trimmed.contains("allowed-rates") {
+        // Sample rate
+        if trimmed.contains("default.clock.rate") && trimmed.contains('=') && !trimmed.contains("allowed-rates") {
             if let Some(rate_str) = trimmed.split('=').nth(1) {
-                let rate_clean = rate_str.trim().trim_matches('"').trim();
+                let rate_clean = rate_str.trim().trim_matches('"').trim().trim_start_matches('*').trim();
                 if let Ok(rate) = rate_clean.parse::<u32>() {
                     sample_rate = rate;
                 }
             }
         }
         
-        // Parse audio format
-        if trimmed.starts_with("audio.format =") {
+        // Audio format
+        if trimmed.contains("audio.format") && trimmed.contains('=') {
             if let Some(format_str) = trimmed.split('=').nth(1) {
-                let format = format_str.trim().trim_matches('"').trim();
+                let format = format_str.trim().trim_matches('"').trim().trim_start_matches('*').trim();
                 bit_depth = match format {
                     "S16LE" => 16,
-                    "S24LE" => 24, 
+                    "S24LE" => 24,
                     "S32LE" => 32,
                     _ => 24,
                 };
             }
         }
         
-        // Parse buffer size - only the main quantum value
-        if trimmed.starts_with("default.clock.quantum =") {
+        // Buffer size - ONLY use default.clock.quantum, ignore quantum-limit
+        if trimmed.contains("default.clock.quantum") && trimmed.contains('=') && 
+           !trimmed.contains("min-quantum") && !trimmed.contains("max-quantum") && 
+           !trimmed.contains("quantum-limit") && !trimmed.contains("quantum-floor") {
             if let Some(quantum_str) = trimmed.split('=').nth(1) {
-                let quantum_clean = quantum_str.trim().trim_matches('"').trim();
+                let quantum_clean = quantum_str.trim().trim_matches('"').trim().trim_start_matches('*').trim();
                 if let Ok(quantum) = quantum_clean.parse::<u32>() {
                     buffer_size = quantum;
                 }
