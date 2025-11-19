@@ -1,6 +1,6 @@
 /*
  * Pro Audio Config - User Interface Module  
- * Version: 1.0
+ * Version: 1.2
  * Copyright (c) 2025 Peter Leukanič
  * Under MIT License
  * Feel free to share and modify
@@ -19,16 +19,26 @@ use glib::ControlFlow;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
-use crate::audio::{AudioSettings, apply_audio_settings_with_auth_blocking, detect_audio_device};
+use crate::audio::{
+    AudioSettings, AudioDevice, 
+    apply_audio_settings_with_auth_blocking, 
+    detect_audio_device, 
+    detect_all_audio_devices,
+    detect_current_audio_settings,
+    DeviceType
+};
 
 pub struct AudioApp {
     pub window: ApplicationWindow,
     pub status_label: Label,
     pub sample_rate_combo: ComboBoxText,
-    pub bit_depth_combo: ComboBoxText,
+    pub bit_depth_combo: ComboBoxText, 
     pub buffer_size_combo: ComboBoxText,
+    pub device_combo: ComboBoxText,
     pub current_device_label: Label,
     pub apply_button: Button,
+    pub available_devices: Vec<AudioDevice>,
+    pub current_default_device: Arc<Mutex<String>>,
 }
 
 impl AudioApp {
@@ -37,24 +47,24 @@ impl AudioApp {
         window.set_title("Pro Audio Config");
         window.set_default_size(500, 650);
 
-	// Set window icon from system or development location
-	let icon_paths = [
-	    // System installation paths (multiple sizes)
-	    "/usr/share/icons/hicolor/16x16/apps/pro-audio-config.png",
-	    "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
-	    "/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png", 
-	    "/usr/share/icons/hicolor/256x256/apps/pro-audio-config.png",
-	    // Development paths
-	    "icons/48x48/pro-audio-config.png",
-	    "icons/32x32/pro-audio-config.png",
-	    "icons/icon.png", // Relative path from project root
+        // Set window icon from system or development location
+        let icon_paths = [
+            // System installation paths (multiple sizes)
+            "/usr/share/icons/hicolor/16x16/apps/pro-audio-config.png",
+            "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
+            "/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png", 
+            "/usr/share/icons/hicolor/256x256/apps/pro-audio-config.png",
+            // Development paths
+            "icons/48x48/pro-audio-config.png",
+            "icons/32x32/pro-audio-config.png",
+            "icons/icon.png", // Relative path from project root
             "icon.png", // Current directory
             "../icons/icon.png", // If running from different directory
             "./icons/icon.png", // Explicit current directory
-	    // Alternative system paths
+            // Alternative system paths
             "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
-	    "/usr/local/share/icons/hicolor/48x48/apps/pro-audio-config.png",
-	];
+            "/usr/local/share/icons/hicolor/48x48/apps/pro-audio-config.png",
+        ];
         
         for path in &icon_paths {
             if let Ok(pixbuf) = gtk::gdk_pixbuf::Pixbuf::from_file(path) {
@@ -62,8 +72,8 @@ impl AudioApp {
                 break;
             }
         }
-	
-	// Create menu bar
+        
+        // Create menu bar
         let menu_bar = gtk::MenuBar::new();
         
         // Create Help menu
@@ -96,10 +106,25 @@ impl AudioApp {
         // ===== DEVICE SECTION =====
         let (device_frame, device_box) = create_section_box("Audio Device");
         
-        let current_device_label = Label::new(Some("Detecting audio device..."));
+        // CURRENT Device Display (Read-only)
+        let current_device_label = Label::new(Some("Current Default Device: Detecting..."));
         current_device_label.set_halign(gtk::Align::Start);
+        current_device_label.set_selectable(true); // Allow copying device name
         
+        // Device Selection Dropdown
+        let device_selection_label = Label::new(Some("Select Audio Device to Configure:"));
+        device_selection_label.set_halign(gtk::Align::Start);
+        
+        let device_combo = ComboBoxText::new();
+        
+        let selection_info_label = Label::new(Some("Select a device from the dropdown above"));
+        selection_info_label.set_halign(gtk::Align::Start);
+        
+        // Add device info to device box
         device_box.pack_start(&current_device_label, false, false, 0);
+        device_box.pack_start(&device_selection_label, false, false, 0);
+        device_box.pack_start(&device_combo, false, false, 0);
+        device_box.pack_start(&selection_info_label, false, false, 0);
 
         // ===== SETTINGS SECTION =====
         let (settings_frame, settings_box) = create_section_box("Audio Settings");
@@ -195,20 +220,165 @@ impl AudioApp {
             sample_rate_combo,
             bit_depth_combo,
             buffer_size_combo,
+            device_combo,
             current_device_label,
             apply_button,
+            available_devices: Vec::new(),
+            current_default_device: Arc::new(Mutex::new(String::new())), // Initialize empty
         };
 
-	// ===== CONNECT SIGNALS =====
+        // ===== CONNECT SIGNALS =====
         app_state.setup_signals();
-	
-	// ===== DETECT CURRENT SETTINGS AND DEVICE =====
+        
+        // ===== DETECT ALL DEVICES AND CURRENT SETTINGS =====
+        app_state.detect_all_devices();
         app_state.detect_current_settings();
-        app_state.detect_audio_device();
+        app_state.detect_current_device();
 
         app_state
     }
 
+    // Detect current default device and store the actual device name
+    fn detect_current_device(&self) {
+	let current_device_label = self.current_device_label.clone();
+	let current_default_device = Arc::clone(&self.current_default_device);
+	
+	// Create channel for communication
+	let (tx, rx) = mpsc::channel();
+	let rx_arc = Arc::new(Mutex::new(rx));
+	
+	// Spawn thread for device detection
+	std::thread::spawn(move || {
+            let result = detect_audio_device();
+            let _ = tx.send(result);
+	});
+	
+	// Set up timeout to check for result
+	let rx_timeout = Arc::clone(&rx_arc);
+	glib::timeout_add_local(Duration::from_millis(100), move || {
+            let rx_guard = rx_timeout.lock().unwrap();
+            match rx_guard.try_recv() {
+		Ok(result) => {
+                    match result {
+			Ok(device_info) => {
+                            // Store the actual device name for later use
+                            let actual_device_name = clean_device_display(&device_info);
+                            {
+				let mut stored = current_default_device.lock().unwrap();
+				*stored = actual_device_name.clone();
+                            }
+                            
+                            current_device_label.set_text(&format!("Current Default Device: {}", actual_device_name));
+			}
+			Err(e) => {
+                            current_device_label.set_text(&format!("Current Default Device: Error detecting - {}", e));
+			}
+                    }
+                    ControlFlow::Break
+		}
+		Err(mpsc::TryRecvError::Empty) => ControlFlow::Continue,
+		Err(mpsc::TryRecvError::Disconnected) => {
+                    current_device_label.set_text("Current Default Device: Detection failed");
+                    ControlFlow::Break
+		}
+            }
+	});
+    }
+
+    // Detect all available devices for dropdown - ONLY OUTPUT DEVICES
+    fn detect_all_devices(&self) {
+	let device_combo = self.device_combo.clone();
+	let current_default_device = Arc::clone(&self.current_default_device);
+	
+	// Create channel for communication  
+	let (tx, rx) = mpsc::channel();
+	let rx_arc = Arc::new(Mutex::new(rx));
+	
+	// Spawn thread for device detection
+	std::thread::spawn(move || {
+            let result = detect_all_audio_devices();
+            let _ = tx.send(result);
+	});
+	
+	// Set up timeout to check for result
+	let rx_timeout = Arc::clone(&rx_arc);
+	glib::timeout_add_local(Duration::from_millis(100), move || {
+            let rx_guard = rx_timeout.lock().unwrap();
+            match rx_guard.try_recv() {
+		Ok(result) => {
+                    match result {
+			Ok(devices) => {
+                            // Clear existing items
+                            device_combo.remove_all();
+                            
+                            // Get the stored default device name if available
+                            let default_device_name = {
+				let stored = current_default_device.lock().unwrap();
+				if !stored.is_empty() {
+                                    // Just use the stored device name directly
+                                    format!("Default: {}", stored)
+				} else {
+                                    "Default System Device".to_string()
+				}
+                            };
+                            
+                            // Add "Default Device" option with actual device name
+                            device_combo.append(Some("default"), &default_device_name);
+                            
+                            // Filter devices to only include output devices
+                            let output_devices: Vec<&AudioDevice> = devices.iter()
+				.filter(|device| {
+                                    matches!(device.device_type, DeviceType::Output | DeviceType::Duplex)
+				})
+				.collect();
+                            
+                            if !output_devices.is_empty() {
+				// Add separator
+				device_combo.append(Some("separator"), "--- Output Devices ---");
+				
+				// Add output devices to dropdown
+				for device in output_devices {
+                                    let device_type = match device.device_type {
+					DeviceType::Output => "🔊 Output",
+					DeviceType::Duplex => "🔄 Duplex", 
+					_ => "🔊 Output", // Should not happen due to filter
+                                    };
+                                    
+                                    // Clean the description by removing "SUSPENDED" and any trailing status words
+                                    let clean_description = clean_device_description(&device.description);
+                                    
+                                    let display_text = if clean_description.is_empty() {
+					format!("{} {}", device_type, device.name)
+                                    } else {
+					format!("{} {} - {}", device_type, device.name, clean_description)
+                                    };
+                                    device_combo.append(Some(&device.id), &display_text);
+				}
+                            }
+                            
+                            // Select "Default Device" by default
+                            device_combo.set_active_id(Some("default"));
+			}
+			Err(e) => {
+                            println!("Error detecting devices: {}", e);
+                            // Still add default option
+                            device_combo.append(Some("default"), "Default System Device");
+                            device_combo.set_active_id(Some("default"));
+			}
+                    }
+                    ControlFlow::Break
+		}
+		Err(mpsc::TryRecvError::Empty) => ControlFlow::Continue,
+		Err(mpsc::TryRecvError::Disconnected) => {
+                    // Add default option as fallback
+                    device_combo.append(Some("default"), "Default System Device");
+                    device_combo.set_active_id(Some("default"));
+                    ControlFlow::Break
+		}
+            }
+	});
+    }
+    
     fn detect_current_settings(&self) {
         let sample_rate_combo = self.sample_rate_combo.clone();
         let bit_depth_combo = self.bit_depth_combo.clone();
@@ -222,7 +392,7 @@ impl AudioApp {
         
         // Spawn thread for blocking operation
         std::thread::spawn(move || {
-            let result = crate::audio::detect_current_audio_settings();
+            let result = detect_current_audio_settings();
             let _ = tx.send(result);
         });
         
@@ -270,11 +440,19 @@ impl AudioApp {
         let sample_rate_combo = self.sample_rate_combo.clone();
         let bit_depth_combo = self.bit_depth_combo.clone();
         let buffer_size_combo = self.buffer_size_combo.clone();
+        let device_combo = self.device_combo.clone();
+        let current_device_label = self.current_device_label.clone();
+        let current_default_device = Arc::clone(&self.current_default_device);
         
         self.apply_button.connect_clicked(move |_| {
             // Update UI immediately
             status_label.set_text("Applying settings...");
             apply_button.set_sensitive(false);
+            
+            // Get selected device ID
+            let device_id = device_combo.active_id()
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "default".to_string());
             
             // Get settings
             let settings = {
@@ -294,6 +472,7 @@ impl AudioApp {
                     sample_rate,
                     bit_depth,
                     buffer_size,
+                    device_id,
                 }
             };
             
@@ -334,7 +513,7 @@ impl AudioApp {
                     }
                     Err(mpsc::TryRecvError::Empty) => {
                         // Still processing, check again
-			ControlFlow::Continue
+                        ControlFlow::Continue
                     }
                     Err(mpsc::TryRecvError::Disconnected) => {
                         // Thread finished but no result
@@ -346,51 +525,66 @@ impl AudioApp {
                 }
             });
         });
-    }
-
-    fn detect_audio_device(&self) {
-        let current_device_label = self.current_device_label.clone();
         
-        // Create channel for communication
-        let (tx, rx) = mpsc::channel();
-        
-        // Store the receiver in an Arc<Mutex> to share between threads
-        let rx_arc = Arc::new(Mutex::new(rx));
-        
-        // Spawn thread for blocking operation
-        std::thread::spawn(move || {
-            let result = detect_audio_device();
-            let _ = tx.send(result);
-        });
-        
-        // Set up timeout to check for result
-        let rx_timeout = Arc::clone(&rx_arc);
-        glib::timeout_add_local(Duration::from_millis(100), move || {
-            let rx_guard = rx_timeout.lock().unwrap();
-            match rx_guard.try_recv() {
-                Ok(result) => {
-                    match result {
-                        Ok(device_info) => {
-                            current_device_label.set_text(&device_info);
-                        }
-                        Err(e) => {
-                            current_device_label.set_text(&format!("Error detecting device: {}", e));
-                        }
+        // Show selection info when device changes
+        self.device_combo.connect_changed(move |combo| {
+            if let Some(active_id) = combo.active_id() {
+                if active_id == "separator" {
+                    // Skip separator
+                    return;
+                }
+                let selection_text = if active_id == "default" {
+                    // Use the stored device name
+                    let stored_name = current_default_device.lock().unwrap();
+                    if !stored_name.is_empty() {
+                        format!("Selected: Default System Device ({})", stored_name)
+                    } else {
+                        "Selected: Default System Device".to_string()
                     }
-                    ControlFlow::Break
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    // Still processing, check again
-                    ControlFlow::Continue
-		}
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    // Thread finished but no result
-                    current_device_label.set_text("Error detecting audio device");
-                    ControlFlow::Break
-                }
+                } else {
+                    // Get the display text and clean it for the selection info
+                    let display_text = combo.active_text().unwrap_or_default();
+                    let clean_text = clean_display_text(&display_text);
+                    format!("Selected: {}", clean_text)
+                };
+                current_device_label.set_text(&selection_text);
             }
         });
     }
+}
+
+// Helper function to clean device description by removing status words like "SUSPENDED"
+fn clean_device_description(description: &str) -> String {
+    description
+        .replace("SUSPENDED", "")
+        .replace("RUNNING", "")
+        .replace("IDLE", "")
+        .trim()
+        .trim_end_matches('-')
+        .trim()
+        .to_string()
+}
+
+// Helper function to clean display text in the selection info
+fn clean_display_text(display_text: &str) -> String {
+    display_text
+        .replace("SUSPENDED", "")
+        .replace("RUNNING", "")
+        .replace("IDLE", "")
+        .trim()
+        .trim_end_matches('-')
+        .trim()
+        .to_string()
+}
+
+// Helper function to clean device display name (remove PipeWire: prefix etc.)
+fn clean_device_display(device_info: &str) -> String {
+    device_info
+        .replace("PipeWire:", "")
+        .replace("PulseAudio:", "")
+        .replace("ALSA:", "")
+        .trim()
+        .to_string()
 }
 
 pub fn create_section_box(title: &str) -> (Frame, GtkBox) {
@@ -474,7 +668,7 @@ pub fn show_about_dialog() {
     
     dialog.set_title("About Pro Audio Config");
     dialog.set_program_name("Pro Audio Config");
-    dialog.set_version(Some("1.0"));
+    dialog.set_version(Some("1.2"));
     dialog.set_website(Some("https://github.com/Peter-L-SVK/pro_audio_config"));
     dialog.set_copyright(Some("Copyright © 2025 Peter Leukanič"));
     dialog.set_authors(&["Peter Leukanič"]);
@@ -495,21 +689,21 @@ pub fn show_about_dialog() {
     dialog.set_wrap_license(true);
 
     let icon_paths = [
-	// System installation paths (multiple sizes)
-	"/usr/share/icons/hicolor/16x16/apps/pro-audio-config.png",
-	"/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
-	"/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png", 
-	"/usr/share/icons/hicolor/256x256/apps/pro-audio-config.png",
-	// Development paths
-	"icons/48x48/pro-audio-config.png",
-	"icons/32x32/pro-audio-config.png",
-	"icons/icon.png", // Relative path from project root
+        // System installation paths (multiple sizes)
+        "/usr/share/icons/hicolor/16x16/apps/pro-audio-config.png",
+        "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
+        "/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png", 
+        "/usr/share/icons/hicolor/256x256/apps/pro-audio-config.png",
+        // Development paths
+        "icons/48x48/pro-audio-config.png",
+        "icons/32x32/pro-audio-config.png",
+        "icons/icon.png", // Relative path from project root
         "icon.png", // Current directory
         "../icons/icon.png", // If running from different directory
         "./icons/icon.png", // Explicit current directory
-	// Alternative system paths
+        // Alternative system paths
         "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
-	"/usr/local/share/icons/hicolor/48x48/apps/pro-audio-config.png",
+        "/usr/local/share/icons/hicolor/48x48/apps/pro-audio-config.png",
     ];
     
     for path in &icon_paths {
@@ -537,6 +731,51 @@ fn get_main_window() -> gtk::Window {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_device_description() {
+        assert_eq!(
+            clean_device_description("PipeWire s32le 4ch 192000Hz SUSPENDED"),
+            "PipeWire s32le 4ch 192000Hz"
+        );
+        assert_eq!(
+            clean_device_description("SUSPENDED PipeWire Device"),
+            "PipeWire Device"
+        );
+        assert_eq!(
+            clean_device_description("Device - RUNNING"),
+            "Device"
+        );
+        assert_eq!(
+            clean_device_description("Normal Device Description"),
+            "Normal Device Description"
+        );
+    }
+
+    #[test]
+    fn test_clean_display_text() {
+        assert_eq!(
+            clean_display_text("🔊 Output alsa_device - SUSPENDED"),
+            "🔊 Output alsa_device"
+        );
+        assert_eq!(
+            clean_display_text("🔄 Duplex device - RUNNING"),
+            "🔄 Duplex device"
+        );
+    }
+
+    #[test]
+    fn test_clean_device_display() {
+        assert_eq!(
+            clean_device_display("PipeWire: alsa_output.usb-PreSonus_Studio_26c_0142446A-00.analog-surround-40"),
+            "alsa_output.usb-PreSonus_Studio_26c_0142446A-00.analog-surround-40"
+        );
+        assert_eq!(
+            clean_device_display("PulseAudio: default_sink"),
+            "default_sink"
+        );
+    }
 
     #[test]
     fn test_audio_settings_from_ui() {
@@ -569,10 +808,12 @@ mod tests {
             sample_rate: 96000,
             bit_depth: 32,
             buffer_size: 1024,
+            device_id: "default".to_string(),
         };
         
         assert_eq!(settings.sample_rate, 96000);
         assert_eq!(settings.bit_depth, 32);
         assert_eq!(settings.buffer_size, 1024);
+        assert_eq!(settings.device_id, "default");
     }
 }
