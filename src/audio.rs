@@ -52,17 +52,17 @@ pub fn detect_all_audio_devices() -> Result<Vec<AudioDevice>, String> {
     
     println!("=== Scanning for all audio devices ===");
     
-    // Method 1: PipeWire devices
+    // Method 1: PipeWire devices (HIGHEST PRIORITY)
     if let Ok(output) = Command::new("pw-cli")
         .args(["list-objects", "Node"])
         .output() {
         devices.extend(parse_pipewire_devices(&output.stdout)?);
     }
     
-    // Method 2: ALSA devices
+    // Method 2: ALSA devices (fallback)
     devices.extend(detect_alsa_devices()?);
     
-    // Method 3: PulseAudio devices (fallback)
+    // Method 3: PulseAudio devices (lowest priority - compatibility layer)
     devices.extend(detect_pulse_devices()?);
     
     println!("Found {} audio devices", devices.len());
@@ -307,13 +307,13 @@ fn parse_pulse_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice>
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let device = AudioDevice {
-                name: parts[1].to_string(),
+                name: parts[1].to_string(), // Use actual device name, not pulse ID
                 description: if parts.len() >= 3 { 
                     parts[2..].join(" ") 
                 } else { 
                     "PulseAudio Device".to_string() 
                 },
-                id: format!("pulse:{}", parts[0]),
+                id: format!("pulse:{}", parts[0]), // Store as pulse:ID for resolution
                 device_type: device_type.clone(),
                 available: true,
             };
@@ -415,6 +415,9 @@ fn detect_audio_system() -> String {
 }
 
 pub fn apply_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
+    // DEBUG: See what device ID is being passed
+    println!("DEBUG: Selected device_id: {}", settings.device_id);
+
     // Get the current username
     let username = whoami::username();
     
@@ -438,6 +441,7 @@ echo "=== Starting Audio Configuration ==="
 echo "Running as: $(whoami)"
 echo "Target user: {}"
 echo "Target device: {}"
+echo "Device pattern: {}"
 
 # Get user ID and runtime directory
 USER_ID=$(id -u {})
@@ -520,23 +524,26 @@ echo "  Sample Rate: {} Hz"
 echo "  Bit Depth: {} bit"
 echo "  Buffer Size: {} samples"
 echo "  Target Device: {}"
+echo "  Device Pattern: {}"
 echo ""
 echo "Note: Some settings may require application restart to take effect"
 "#,
     username,        // 1st placeholder: Target user
     settings.device_id, // 2nd placeholder: Target device
-    username,        // 3rd placeholder: USER_ID
-    username,        // 4th placeholder: sudo -u
-    username,        // 5th placeholder: CONFIG_DIR
-    device_pattern,  // 6th placeholder: device.name pattern
-    settings.sample_rate,  // 7th placeholder: audio.rate
-    format,          // 8th placeholder: audio.format
-    settings.buffer_size,  // 9th placeholder: api.alsa.period-size
-    settings.buffer_size,  // 10th placeholder: clock.force-quantum
-    settings.sample_rate,  // 11th placeholder: Sample Rate in summary
-    settings.bit_depth,    // 12th placeholder: Bit Depth in summary
-    settings.buffer_size,  // 13th placeholder: Buffer Size in summary
-    settings.device_id,    // 14th placeholder: Target Device in summary
+    device_pattern,  // 3rd placeholder: Device pattern
+    username,        // 4th placeholder: USER_ID
+    username,        // 5th placeholder: sudo -u
+    username,        // 6th placeholder: CONFIG_DIR
+    device_pattern,  // 7th placeholder: device.name pattern
+    settings.sample_rate,  // 8th placeholder: audio.rate
+    format,          // 9th placeholder: audio.format
+    settings.buffer_size,  // 10th placeholder: api.alsa.period-size
+    settings.buffer_size,  // 11th placeholder: clock.force-quantum
+    settings.sample_rate,  // 12th placeholder: Sample Rate in summary
+    settings.bit_depth,    // 13th placeholder: Bit Depth in summary
+    settings.buffer_size,  // 14th placeholder: Buffer Size in summary
+    settings.device_id,    // 15th placeholder: Target Device in summary
+    device_pattern,        // 16th placeholder: Device Pattern in summary
 );
     
     // Write temporary script
@@ -603,23 +610,150 @@ echo "Note: Some settings may require application restart to take effect"
 // Helper function to extract device pattern for WirePlumber matching
 fn extract_device_pattern(device_id: &str) -> String {
     match device_id {
-        "default" => "alsa.*".to_string(), // Default targets all ALSA devices
+        "default" => "alsa.*".to_string(),
         id if id.starts_with("alsa:") => {
-            // Extract ALSA device name after "alsa:"
-            id.trim_start_matches("alsa:").to_string()
+            let alsa_name = id.trim_start_matches("alsa:");
+            if alsa_name.contains(".") {
+                alsa_name.to_string()
+            } else {
+                format!("alsa_output.{}", alsa_name)
+            }
         }
         id if id.starts_with("pipewire:") => {
-            // For PipeWire devices, use the node ID directly
             let node_id = id.trim_start_matches("pipewire:");
-            format!("alsa_card.{}", node_id) // PipeWire ALSA cards follow this pattern
+            // Use dynamic resolution to get the actual device name
+            match resolve_pipewire_device_name(node_id) {
+                Ok(device_name) => {
+                    println!("✅ Resolved pipewire:{} to device: {}", node_id, device_name);
+                    device_name
+                },
+                Err(e) => {
+                    println!("❌ Failed to resolve pipewire:{}: {}", node_id, e);
+                    // Emergency fallback - try to find the device by description
+                    find_device_by_description(node_id).unwrap_or_else(|| {
+                        format!("alsa_output.{}", node_id) // Last resort fallback
+                    })
+                }
+            }
         }
         id if id.starts_with("pulse:") => {
-            // For PulseAudio devices, convert to ALSA pattern
             let pulse_id = id.trim_start_matches("pulse:");
-            format!("alsa_output.{}", pulse_id)
+            // NEW: Resolve pulse: IDs to actual device names on PipeWire systems
+            match resolve_pulse_device_name(pulse_id) {
+                Ok(device_name) => {
+                    println!("✅ Resolved pulse:{} to device: {}", pulse_id, device_name);
+                    device_name
+                },
+                Err(e) => {
+                    println!("❌ Failed to resolve pulse:{}: {}", pulse_id, e);
+                    // Fallback to old behavior
+                    format!("alsa_output.{}", pulse_id)
+                }
+            }
         }
-        _ => device_id.to_string(), // Fallback to original ID
+        _ => device_id.to_string(),
     }
+}
+
+// Helper function to resolve PipeWire node IDs to actual device names
+fn resolve_pipewire_device_name(node_id: &str) -> Result<String, String> {
+    let output = Command::new("pw-cli")
+        .args(["info", node_id])
+        .output()
+        .map_err(|e| format!("Failed to query PipeWire node {}: {}", node_id, e))?;
+    
+    if !output.status.success() {
+        return Err(format!("PipeWire query failed for node {}", node_id));
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    
+    // Look for node.name in the output
+    for line in output_str.lines() {
+        if line.contains("node.name") && line.contains('=') {
+            if let Some(name_part) = line.split('=').nth(1) {
+                let name = name_part.trim().trim_matches('"').to_string();
+                if !name.is_empty() {
+                    return Ok(name);
+                }
+            }
+        }
+    }
+    
+    Err(format!("Could not find node.name for PipeWire node {}", node_id))
+}
+
+// NEW: Helper function to resolve PulseAudio device IDs to actual device names
+fn resolve_pulse_device_name(pulse_id: &str) -> Result<String, String> {
+    // Use pactl to get the actual device name
+    let output = Command::new("pactl")
+        .args(["list", "sinks", "short"])
+        .output()
+        .map_err(|e| format!("Failed to query PulseAudio devices: {}", e))?;
+    
+    if !output.status.success() {
+        return Err("PulseAudio query failed".to_string());
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    
+    // Parse the output to find the device with the matching pulse ID
+    for line in output_str.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 && parts[0] == pulse_id {
+            // Return the actual device name (second column)
+            return Ok(parts[1].to_string());
+        }
+    }
+    
+    // Also check sources (inputs) if not found in sinks
+    let output = Command::new("pactl")
+        .args(["list", "sources", "short"])
+        .output()
+        .map_err(|e| format!("Failed to query PulseAudio sources: {}", e))?;
+    
+    if output.status.success() {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        for line in output_str.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 && parts[0] == pulse_id {
+                return Ok(parts[1].to_string());
+            }
+        }
+    }
+    
+    Err(format!("PulseAudio device {} not found", pulse_id))
+}
+
+// Emergency fallback - try to find device by scanning all nodes
+fn find_device_by_description(target_node_id: &str) -> Option<String> {
+    if let Ok(output) = Command::new("pw-cli").args(["list-objects", "Node"]).output() {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut current_node_id: Option<String> = None;
+        let mut current_device_name: Option<String> = None;
+        
+        for line in output_str.lines() {
+            if line.contains("id ") && line.contains("type PipeWire:Interface:Node") {
+                if let Some(id_part) = line.split(',').next() {
+                    if let Some(id) = id_part.split(' ').nth(1) {
+                        current_node_id = Some(id.to_string());
+                    }
+                }
+            }
+            
+            if let Some(ref node_id) = current_node_id {
+                if node_id == target_node_id && line.contains("node.name") && line.contains('=') {
+                    if let Some(name_part) = line.split('=').nth(1) {
+                        let name = name_part.trim().trim_matches('"').to_string();
+                        if !name.is_empty() {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn detect_current_audio_settings() -> Result<AudioSettings, String> {
