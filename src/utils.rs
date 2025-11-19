@@ -1,11 +1,11 @@
 /*
- * Pro Audio Config
- * Version: 1.2
+ * Pro Audio Config - Utils
+ * Version: 1.3
  * Copyright (c) 2025 Peter Leukanič
  * Under MIT License
  * Feel free to share and modify
  *
- * Audio configuration tool for Linux PipeWire/ALSA systems (Jack in mind)
+ * Utility functions and objects
  */
 
 // Utility functions will go here in future
