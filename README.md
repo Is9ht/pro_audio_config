@@ -124,11 +124,9 @@ Each tab maintains independent settings, allowing you to optimize input and outp
 - 256 samples (5.3ms @48kHz)
 - 512 samples (10.7ms @48kHz)
 - 1024 samples (21.3ms @48kHz)
-- 2048 samples (42.7ms @48kHz) - **Maximum currently handled by PipeWire**
+- 2048 samples (42.7ms @48kHz)
 - 4096 samples (85.3ms @48kHz) 
 - 8192 samples (170.7ms @48kHz)
-
-**Note:** While higher buffer sizes can be configured, PipeWire currently has a practical maximum of 2048 samples for reliable operation. Settings above this may not function as expected.
 
 ## Building from Source
 

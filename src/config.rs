@@ -54,7 +54,7 @@ impl ServiceConfig {
         }
         
         let user_id_str = String::from_utf8_lossy(&output.stdout);
-	let user_id_str = user_id_str.trim();
+        let user_id_str = user_id_str.trim();
         let user_id: u32 = user_id_str.parse()
             .map_err(|e| format!("Invalid user ID: {}", e))?;
             
@@ -117,6 +117,58 @@ impl ScriptGenerator {
         Ok(self.build_script_template(&device_pattern, format))
     }
 
+    pub fn generate_system_pipewire_config(&self) -> String {
+        format!(
+            r#"
+# System-wide PipeWire configuration for pro audio
+# This affects all applications using PipeWire
+
+context.properties = {{
+    default.clock.rate = {}
+    default.clock.quantum = {}
+    default.clock.min-quantum = {}
+    default.clock.max-quantum = {}
+    default.clock.quantum-limit = 8192
+}}
+
+stream.properties = {{
+    node.latency = {}/{}
+    resample.quality = 4
+}}
+
+# RT settings for low latency
+context.modules = [
+    {{
+        name = libpipewire-module-rt
+        args = {{
+            nice.level = -11
+            rt.prio = 88
+            rt.time.soft = 200000
+            rt.time.hard = 200000
+        }}
+    }}
+]
+"#,
+            self.audio_settings.sample_rate,
+            self.audio_settings.buffer_size,
+            self.audio_settings.buffer_size,
+            self.audio_settings.buffer_size * 2,  // max-quantum as 2x buffer_size
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate
+        )
+    }
+
+    pub fn generate_global_audio_script(&self) -> Result<String, String> {
+        self.audio_settings.validate()?;
+        self.service_config.validate()?;
+
+        let device_pattern = extract_device_pattern(&self.audio_settings.device_id)?;
+        let format = self.audio_settings.get_audio_format()?;
+        let system_config = self.generate_system_pipewire_config();
+
+        Ok(self.build_global_script_template(&device_pattern, format, &system_config))
+    }
+
     fn build_script_template(&self, device_pattern: &str, format: &str) -> String {
         format!(
             r#"#!/bin/bash
@@ -175,6 +227,8 @@ alsa_monitor.rules = {{
             ["audio.rate"] = {},
             ["audio.format"] = "{}",
             ["api.alsa.period-size"] = {},
+            ["api.alsa.period-num"] = 2,
+            ["api.alsa.headroom"] = 8192,
         }},
     }},
 }}
@@ -233,6 +287,199 @@ echo "Note: Some settings may require application restart to take effect"
             device_pattern,
         )
     }
+
+    fn build_global_script_template(&self, device_pattern: &str, format: &str, system_config: &str) -> String {
+        format!(
+            r#"#!/bin/bash
+set -e
+
+echo "=== Starting Global Audio Configuration ==="
+echo "Running as: $(whoami)"
+echo "Target user: {}"
+echo "Target device: {}"
+echo "Device pattern: {}"
+echo "Buffer size: {} samples"
+
+# Get user ID and runtime directory
+USER_ID={}
+RUNTIME_DIR="{}"
+DBUS_ADDRESS="{}"
+
+echo "User ID: $USER_ID"
+echo "Runtime directory: $RUNTIME_DIR"
+
+# Function to run commands as user with proper environment
+run_as_user() {{
+    sudo -u {} XDG_RUNTIME_DIR="$RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" bash -c "$1"
+}}
+
+echo "Testing user service access..."
+if run_as_user "systemctl --user daemon-reload"; then
+    echo "User service access: OK"
+else
+    echo "User service access: Limited - some operations may fail"
+fi
+
+echo "Stopping audio services..."
+run_as_user "systemctl --user stop wireplumber pipewire pipewire-pulse" || true
+sleep 2
+
+echo "Killing any remaining audio processes..."
+run_as_user "pkill -f wireplumber" || true
+run_as_user "pkill -f pipewire" || true
+run_as_user "pkill -f pipewire-pulse" || true
+sleep 1
+
+echo "Creating system-wide PipeWire configuration..."
+# System-wide configuration (requires root)
+mkdir -p /etc/pipewire/pipewire.conf.d
+cat > /etc/pipewire/pipewire.conf.d/99-pro-audio.conf << 'EOF'
+{}
+EOF
+
+echo "Creating user PipeWire configuration..."
+# User-specific configuration
+run_as_user "mkdir -p /home/{}/.config/pipewire/pipewire.conf.d"
+run_as_user "cat > /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf" << 'EOF'
+{}
+EOF
+
+echo "Creating enhanced WirePlumber configuration..."
+CONFIG_DIR="/home/{}/.config/wireplumber/main.lua.d"
+run_as_user "mkdir -p \"$CONFIG_DIR\""
+
+# Create enhanced configuration for global device matching
+run_as_user "cat > \"$CONFIG_DIR/99-global-audio.lua\"" << 'EOF'
+alsa_monitor.rules = {{
+    -- Specific device configuration
+    {{
+        matches = {{
+            {{
+                {{ "device.name", "matches", "{}" }},
+            }},
+        }},
+        apply_properties = {{
+            ["audio.rate"] = {},
+            ["audio.format"] = "{}",
+            ["api.alsa.period-size"] = {},
+            ["api.alsa.period-num"] = 2,
+            ["api.alsa.headroom"] = 8192,
+        }},
+    }},
+    -- Global input device configuration
+    {{
+        matches = {{
+            {{
+                {{ "node.name", "matches", "alsa_input.*" }},
+            }},
+        }},
+        apply_properties = {{
+            ["audio.rate"] = {},
+            ["api.alsa.period-size"] = {},
+        }},
+    }},
+    -- Global output device configuration  
+    {{
+        matches = {{
+            {{
+                {{ "node.name", "matches", "alsa_output.*" }},
+            }},
+        }},
+        apply_properties = {{
+            ["audio.rate"] = {},
+            ["api.alsa.period-size"] = {},
+        }},
+    }},
+    -- Fallback for any audio device
+    {{
+        matches = {{
+            {{
+                {{ "media.class", "matches", "Audio/*" }},
+            }},
+        }},
+        apply_properties = {{
+            ["audio.rate"] = {},
+            ["api.alsa.period-size"] = {},
+        }},
+    }}
+}}
+EOF
+
+echo "All configurations created successfully"
+
+echo "Restarting audio services..."
+run_as_user "systemctl --user daemon-reload"
+run_as_user "systemctl --user start wireplumber" || echo "Failed to start wireplumber"
+sleep 2
+run_as_user "systemctl --user start pipewire" || echo "Failed to start pipewire"
+run_as_user "systemctl --user start pipewire-pulse" || echo "Failed to start pipewire-pulse"
+sleep 3
+
+echo "Setting global buffer size..."
+run_as_user "pw-metadata -n settings 0 clock.force-quantum {}" || echo "Note: Quantum setting applied via config"
+
+sleep 2
+
+echo "Verifying audio services are running..."
+run_as_user "systemctl --user is-active wireplumber && echo 'WirePlumber: active' || echo 'WirePlumber: inactive'"
+run_as_user "systemctl --user is-active pipewire && echo 'PipeWire: active' || echo 'PipeWire: inactive'"
+
+echo "Verifying global settings..."
+echo "=== System-wide Settings ==="
+run_as_user "pw-cli info 0 2>/dev/null | grep -E '(default.clock.rate|default.clock.quantum|audio.format)'" || echo "Could not query all settings"
+
+echo "=== Current Audio Nodes ==="
+run_as_user "pw-cli list-objects Node 2>/dev/null | grep -E '(node.name|audio.rate|audio.format)' | head -20" || echo "Could not list audio nodes"
+
+echo ""
+echo "=== Global audio configuration completed ==="
+echo "Applied GLOBAL settings:"
+echo "  Sample Rate: {} Hz (system-wide)"
+echo "  Bit Depth: {} bit"
+echo "  Buffer Size: {} samples (system-wide)"
+echo "  Target Device: {}"
+echo "  Device Pattern: {}"
+echo ""
+echo "Configuration files created:"
+echo "  - /etc/pipewire/pipewire.conf.d/99-pro-audio.conf (system-wide)"
+echo "  - /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf (user)"
+echo "  - /home/{}/.config/wireplumber/main.lua.d/99-global-audio.lua (device rules)"
+echo ""
+echo "Note: These settings affect ALL applications using PipeWire"
+"#,
+            self.service_config.username,
+            self.audio_settings.device_id,
+            device_pattern,
+            self.audio_settings.buffer_size,
+            self.service_config.user_id,
+            self.service_config.runtime_dir,
+            self.service_config.dbus_address,
+            self.service_config.username,
+            system_config,
+            self.service_config.username,
+            self.service_config.username,
+            system_config,
+            self.service_config.username,
+            device_pattern,
+            self.audio_settings.sample_rate,
+            format,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate,
+            self.audio_settings.buffer_size,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate,
+            self.audio_settings.bit_depth,
+            self.audio_settings.buffer_size,
+            self.audio_settings.device_id,
+            device_pattern,
+            self.service_config.username,
+            self.service_config.username,
+        )
+    }
 }
 
 pub struct InputScriptGenerator {
@@ -260,6 +507,39 @@ impl InputScriptGenerator {
         let format = self.audio_settings.get_audio_format()?;
 
         Ok(self.build_input_script_template(&device_pattern, format))
+    }
+
+    pub fn generate_global_audio_script(&self) -> Result<String, String> {
+        self.audio_settings.validate()?;
+        self.service_config.validate()?;
+
+        let device_pattern = extract_input_device_pattern(&self.audio_settings.device_id)?;
+        let format = self.audio_settings.get_audio_format()?;
+        
+        let system_config = format!(
+            r#"
+# System-wide PipeWire configuration for pro audio input
+context.properties = {{
+    default.clock.rate = {}
+    default.clock.quantum = {}
+    default.clock.min-quantum = {}
+    default.clock.max-quantum = {}
+}}
+
+stream.properties = {{
+    node.latency = {}/{}
+    resample.quality = 4
+}}
+"#,
+            self.audio_settings.sample_rate,
+            self.audio_settings.buffer_size,
+            self.audio_settings.buffer_size,
+            self.audio_settings.buffer_size * 2,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate
+        );
+
+        Ok(self.build_global_input_script_template(&device_pattern, format, &system_config))
     }
 
     fn build_input_script_template(&self, device_pattern: &str, format: &str) -> String {
@@ -320,6 +600,8 @@ alsa_monitor.rules = {{
             ["audio.rate"] = {},
             ["audio.format"] = "{}",
             ["api.alsa.period-size"] = {},
+            ["api.alsa.period-num"] = 2,
+            ["api.alsa.headroom"] = 8192,
         }},
     }},
 }}
@@ -376,6 +658,159 @@ echo "Note: Some settings may require application restart to take effect"
             self.audio_settings.buffer_size,
             self.audio_settings.device_id,
             device_pattern,
+        )
+    }
+
+    fn build_global_input_script_template(&self, device_pattern: &str, format: &str, system_config: &str) -> String {
+        format!(
+            r#"#!/bin/bash
+set -e
+
+echo "=== Starting Global Input Audio Configuration ==="
+echo "Running as: $(whoami)"
+echo "Target user: {}"
+echo "Target input device: {}"
+echo "Input device pattern: {}"
+
+# Get user ID and runtime directory
+USER_ID={}
+RUNTIME_DIR="{}"
+DBUS_ADDRESS="{}"
+
+echo "User ID: $USER_ID"
+echo "Runtime directory: $RUNTIME_DIR"
+
+# Function to run commands as user with proper environment
+run_as_user() {{
+    sudo -u {} XDG_RUNTIME_DIR="$RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" bash -c "$1"
+}}
+
+echo "Creating system-wide PipeWire configuration for input..."
+mkdir -p /etc/pipewire/pipewire.conf.d
+cat > /etc/pipewire/pipewire.conf.d/99-pro-audio-input.conf << 'EOF'
+{}
+EOF
+
+echo "Creating user PipeWire configuration..."
+run_as_user "mkdir -p /home/{}/.config/pipewire/pipewire.conf.d"
+run_as_user "cat > /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-input.conf" << 'EOF'
+{}
+EOF
+
+echo "Creating enhanced WirePlumber input configuration..."
+CONFIG_DIR="/home/{}/.config/wireplumber/main.lua.d"
+run_as_user "mkdir -p \"$CONFIG_DIR\""
+
+# Create enhanced input configuration
+run_as_user "cat > \"$CONFIG_DIR/99-global-input-audio.lua\"" << 'EOF'
+alsa_monitor.rules = {{
+    -- Specific input device configuration
+    {{
+        matches = {{
+            {{
+                {{ "device.name", "matches", "{}" }},
+            }},
+        }},
+        apply_properties = {{
+            ["audio.rate"] = {},
+            ["audio.format"] = "{}",
+            ["api.alsa.period-size"] = {},
+            ["api.alsa.period-num"] = 2,
+            ["api.alsa.headroom"] = 8192,
+        }},
+    }},
+    -- Global input device configuration
+    {{
+        matches = {{
+            {{
+                {{ "node.name", "matches", "alsa_input.*" }},
+            }},
+        }},
+        apply_properties = {{
+            ["audio.rate"] = {},
+            ["api.alsa.period-size"] = {},
+        }},
+    }},
+    -- Fallback for any audio input device
+    {{
+        matches = {{
+            {{
+                {{ "media.class", "matches", "Audio/Source" }},
+            }},
+        }},
+        apply_properties = {{
+            ["audio.rate"] = {},
+            ["api.alsa.period-size"] = {},
+        }},
+    }}
+}}
+EOF
+
+echo "All input configurations created successfully"
+
+echo "Restarting audio services for input configuration..."
+run_as_user "systemctl --user stop wireplumber pipewire pipewire-pulse" || true
+sleep 2
+run_as_user "systemctl --user daemon-reload"
+run_as_user "systemctl --user start wireplumber" || echo "Failed to start wireplumber"
+sleep 2
+run_as_user "systemctl --user start pipewire" || echo "Failed to start pipewire"
+run_as_user "systemctl --user start pipewire-pulse" || echo "Failed to start pipewire-pulse"
+sleep 3
+
+echo "Setting global input buffer size..."
+run_as_user "pw-metadata -n settings 0 clock.force-quantum {}" || echo "Note: Quantum setting applied via config"
+
+sleep 2
+
+echo "Verifying input audio settings..."
+run_as_user "pw-cli info 0 2>/dev/null | grep -E '(default.clock.rate|default.clock.quantum)'" || echo "Could not query all settings"
+
+echo "=== Input Audio Nodes ==="
+run_as_user "pw-cli list-objects Node 2>/dev/null | grep -i input | head -10" || echo "Could not list input nodes"
+
+echo ""
+echo "=== Global input audio configuration completed ==="
+echo "Applied GLOBAL input settings:"
+echo "  Sample Rate: {} Hz"
+echo "  Bit Depth: {} bit"
+echo "  Buffer Size: {} samples"
+echo "  Target Input Device: {}"
+echo "  Input Device Pattern: {}"
+echo ""
+echo "Configuration files created:"
+echo "  - /etc/pipewire/pipewire.conf.d/99-pro-audio-input.conf"
+echo "  - /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-input.conf"
+echo "  - /home/{}/.config/wireplumber/main.lua.d/99-global-input-audio.lua"
+"#,
+            self.service_config.username,
+            self.audio_settings.device_id,
+            device_pattern,
+            self.service_config.user_id,
+            self.service_config.runtime_dir,
+            self.service_config.dbus_address,
+            self.service_config.username,
+            system_config,
+            self.service_config.username,
+            self.service_config.username,
+            system_config,
+            self.service_config.username,
+            device_pattern,
+            self.audio_settings.sample_rate,
+            format,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate,
+            self.audio_settings.buffer_size,
+            self.audio_settings.buffer_size,
+            self.audio_settings.sample_rate,
+            self.audio_settings.bit_depth,
+            self.audio_settings.buffer_size,
+            self.audio_settings.device_id,
+            device_pattern,
+            self.service_config.username,
+            self.service_config.username,
         )
     }
 }
@@ -516,7 +951,7 @@ pub fn apply_output_audio_settings_with_auth_blocking(settings: AudioSettings) -
     settings.validate()?;
 
     let script_generator = ScriptGenerator::new(settings.clone())?;
-    let script_content = script_generator.generate_script()?;
+    let script_content = script_generator.generate_global_audio_script()?;
     
     let script_path = std::env::temp_dir().join("apply_output_audio_settings.sh");
     std::fs::write(&script_path, &script_content)
@@ -574,7 +1009,7 @@ pub fn apply_input_audio_settings_with_auth_blocking(settings: AudioSettings) ->
     settings.validate()?;
 
     let script_generator = InputScriptGenerator::new(settings.clone())?;
-    let script_content = script_generator.generate_script()?;
+    let script_content = script_generator.generate_global_audio_script()?;
     
     let script_path = std::env::temp_dir().join("apply_input_audio_settings.sh");
     std::fs::write(&script_path, &script_content)
@@ -873,5 +1308,36 @@ mod tests {
         
         let input_script_gen = InputScriptGenerator::new(valid_settings);
         assert!(input_script_gen.is_ok());
+    }
+
+    // Test global configuration generation
+    #[test]
+    fn test_global_config_generation() {
+        let settings = AudioSettings::new(48000, 24, 8192, "alsa:test_device".to_string());
+        let generator = ScriptGenerator::new(settings).unwrap();
+        
+        let system_config = generator.generate_system_pipewire_config();
+        
+        // Verify system config contains expected settings
+        assert!(system_config.contains("default.clock.rate = 48000"));
+        assert!(system_config.contains("default.clock.quantum = 8192"));
+        assert!(system_config.contains("node.latency = 8192/48000"));
+    }
+
+    #[test]
+    fn test_global_script_generation() {
+        let settings = AudioSettings::new(96000, 32, 2048, "alsa:test_device".to_string());
+        let generator = ScriptGenerator::new(settings).unwrap();
+        
+        let script_result = generator.generate_global_audio_script();
+        assert!(script_result.is_ok());
+        
+        if let Ok(script) = script_result {
+            // Verify global script contains system-wide configuration
+            assert!(script.contains("/etc/pipewire/pipewire.conf.d/99-pro-audio.conf"));
+            assert!(script.contains("Global Audio Configuration"));
+            assert!(script.contains("96000"));
+            assert!(script.contains("2048"));
+        }
     }
 }
