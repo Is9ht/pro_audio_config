@@ -1,6 +1,6 @@
 /*
  * Pro Audio Config
- * Version: 1.5
+ * Version: 1.6
  * Copyright (c) 2025 Peter Leukanič
  * Under MIT License
  * Feel free to share and modify
