@@ -25,6 +25,11 @@ After 10 years of using Fedora and other Linux distributions, I realized we're s
 - **Independent Settings Management**: Configure input and output devices with different sample rates, bit depths, and buffer sizes
 - **Clear Visual Separation**: Intuitive tabbed interface that clearly distinguishes between recording and playback settings
 
+### Configuration Scope
+- **User-Specific Configuration**: Apply settings only for the current user (default)
+- **System-Wide Configuration**: Apply settings for all users on the system (requires admin privileges)
+- **Flexible Deployment**: Choose between user-specific or system-wide configuration based on your needs
+
 ### Advanced Configuration
 - **Dedicated WirePlumber Configs**: Separate configuration generators for input vs output devices
 - **Independent Signal Handlers**: Each tab manages its own settings and apply operations
@@ -105,6 +110,11 @@ pro-audio-config
 
 Each tab maintains independent settings, allowing you to optimize input and output devices separately for your specific use case.
 
+### Configuration Scope
+- **User-Specific (Default)**: Settings apply only to your user account, stored in `~/.config/pipewire/`
+- **System-Wide**: Settings apply to all users, stored in `/etc/pipewire/` (requires authentication)
+- **Toggle Option**: Use the "Apply system-wide" checkbox to switch between user and system configuration
+
 ## Configuration
 
 ### Sample Rates
@@ -153,10 +163,17 @@ cargo test
 pro_audio_config/
 ├── src/
 │   ├── main.rs          # Application entry point
-│   ├── lib.rs           # Library definitions
-│   ├── audio.rs         # Audio configuration logic
-│   └── ui.rs            # GTK user interface
-├── icons/               # Application icons
+│   ├── lib.rs           # Library definitions and exports
+│   ├── audio.rs         # Audio device detection and settings
+│   ├── config.rs        # PipeWire/WirePlumber configuration
+│   ├── ui.rs            # GTK user interface with tabbed interface
+│   └── utils.rs         # Utility functions
+├── tests/
+│   ├── integration.rs   # Main integration tests
+│   ├── audio_integration.rs # Audio-specific integration tests
+│   ├── ui_integration.rs    # UI integration tests
+│   └── common.rs        # Test utilities
+├── icons/               # Application icons (multiple sizes)
 ├── install.sh           # Installation script
 ├── uninstall.sh         # Uninstallation script
 └── Cargo.toml           # Project dependencies
@@ -169,11 +186,24 @@ pro_audio_config/
 - Audio Backend: PipeWire with ALSA fallback
 - Configuration: WirePlumber for session management
 - Privilege Escalation: pkexec for secure root access
+- Multi-threaded UI: Non-blocking device detection and configuration
+
+### Configuration Scope Implementation
+- **User Configuration**: Uses `~/.config/pipewire/pipewire.conf.d/` directory
+- **System Configuration**: Uses `/etc/pipewire/pipewire.conf.d/` directory
+- **Preference Persistence**: User preferences saved in `~/.config/pro-audio-config/preferences.toml`
+- **Authentication**: Uses system's policy kit for secure privilege escalation
 
 ### Audio Format Mapping
 - 16-bit: S16LE
 - 24-bit: S24LE
 - 32-bit: S32LE
+
+### Configuration Approaches
+- **Primary**: PipeWire config fragments (highest priority)
+- **Fallback**: WirePlumber JSON configuration
+- **Legacy**: WirePlumber Lua configuration (versions < 0.5)
+- **Emergency**: Direct modification of main pipewire.conf
 
 ## Contributing
 
@@ -181,14 +211,12 @@ Contributions are welcome! Please feel free to submit pull requests, report bugs
 
 See [CONTRIBUTING](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/CONTRIBUTING.md) file for details.  
 
-For contact please see my email in profile info or use GitHub’s built-in communication tools.
+For contact please see my email in profile info or use GitHub's built-in communication tools.
 
 Please open an issue or pull request for any:  
 
 - Bug fixes
-    
 - Feature suggestions
-    
 - Documentation improvements
 
 ### Development Setup
@@ -218,9 +246,10 @@ For support and questions:
 
 ## Roadmap
 
-- [ ] Package manager support
+- [ ] Package manager support (RPM/DEB/Flatpak)
 - [x] Setting all available devices in one session
 - [x] Separate input/output configuration tabs
+- [x] User vs system-wide configuration scope
 - [ ] Additional audio backends (JACK)
 - [ ] Preset configurations
 - [ ] Advanced audio routing

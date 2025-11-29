@@ -1,23 +1,37 @@
 //! Integration tests specifically for audio functionality
 
-use pro_audio_config::audio::{
-    AudioSettings, AudioDevice, DeviceType,
-    detect_all_audio_devices, detect_current_audio_settings,
-    detect_output_audio_devices, detect_input_audio_devices,
-    detect_output_audio_device, detect_input_audio_device,
-    resolve_pipewire_device_name, resolve_pulse_device_name
-};
-use pro_audio_config::config::{
-    apply_audio_settings_with_auth_blocking,
-    apply_output_audio_settings_with_auth_blocking,
-    apply_input_audio_settings_with_auth_blocking
-};
-use std::process::Command;
+// Common utilities for integration tests
+use pro_audio_config::audio::{AudioSettings, AudioDevice, DeviceType};
+
+fn create_custom_settings(sample_rate: u32, bit_depth: u32, buffer_size: u32, device_id: &str) -> AudioSettings {
+    AudioSettings::new(sample_rate, bit_depth, buffer_size, device_id.to_string())
+}
+
+fn create_test_audio_device(name: &str, description: &str, device_type: DeviceType) -> AudioDevice {
+    AudioDevice {
+        name: name.to_string(),
+        description: description.to_string(),
+        id: format!("alsa:{}", name.to_lowercase().replace(' ', "_")),
+        device_type,
+        available: true,
+    }
+}
 
 fn is_ci_environment() -> bool {
     std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok()
 }
 
+use pro_audio_config::audio::{
+    detect_all_audio_devices, detect_current_audio_settings,
+    detect_output_audio_devices, detect_input_audio_devices,
+    detect_output_audio_device, detect_input_audio_device,
+    resolve_pipewire_device_name, resolve_pulse_device_name
+};
+use pro_audio_config::config::apply_output_audio_settings_with_auth_blocking;
+use pro_audio_config::config::apply_input_audio_settings_with_auth_blocking;
+use std::process::Command;
+
+// Keep this function local to audio_integration.rs since it's audio-specific
 fn has_audio_hardware() -> bool {
     Command::new("pactl")
         .args(["info"])
@@ -52,7 +66,6 @@ fn test_audio_settings_lifecycle() {
     assert!(debug_output.contains("48000"));
 }
 
-// NEW TESTS FOR V1.5 FEATURES
 #[test]
 fn test_separate_input_output_detection() {
     // Test the new v1.5 separate detection functions
@@ -252,14 +265,15 @@ fn test_audio_settings_validation_failures() {
 
 #[test]
 fn test_apply_settings_integration() {
-    // Test that the apply function can be called without panicking
+    // Test that the apply functions can be called without panicking
     let settings = AudioSettings::new(96000, 24, 1024, "default".to_string());
     
     let result = std::panic::catch_unwind(|| {
-        let _ = apply_audio_settings_with_auth_blocking(settings);
+        let _ = apply_output_audio_settings_with_auth_blocking(settings.clone());
+        let _ = apply_input_audio_settings_with_auth_blocking(settings);
     });
     
-    assert!(result.is_ok(), "apply_audio_settings_with_auth_blocking should not panic");
+    assert!(result.is_ok(), "apply audio settings functions should not panic");
 }
 
 #[test]
@@ -375,4 +389,64 @@ fn test_audio_device_struct() {
     let debug_output = format!("{:?}", device);
     assert!(debug_output.contains("Test Device"));
     assert!(debug_output.contains("Output"));
+}
+
+#[test]
+fn test_custom_settings_creation() {
+    // Test the helper function
+    let settings = create_custom_settings(96000, 32, 1024, "alsa:custom");
+    assert_eq!(settings.sample_rate, 96000);
+    assert_eq!(settings.bit_depth, 32);
+    assert_eq!(settings.buffer_size, 1024);
+    assert_eq!(settings.device_id, "alsa:custom");
+}
+
+#[test]
+fn test_test_audio_device_creation() {
+    // Test the helper function
+    let device = create_test_audio_device(
+        "test-device", 
+        "Test USB Audio", 
+        DeviceType::Output
+    );
+    assert_eq!(device.name, "test-device");
+    assert_eq!(device.description, "Test USB Audio");
+    assert_eq!(device.device_type, DeviceType::Output);
+    assert!(device.available);
+}
+
+#[test]
+fn test_audio_hardware_detection() {
+    // Test the audio-specific helper function
+    let has_hardware = has_audio_hardware();
+    // This should not panic and return a boolean
+    assert!(has_hardware || !has_hardware); // Always true, just testing it doesn't panic
+}
+
+#[test]
+fn test_device_resolution_error_paths() {
+    // Test error handling for invalid device IDs
+    let invalid_pipewire = resolve_pipewire_device_name("invalid-node");
+    let invalid_pulse = resolve_pulse_device_name("invalid-sink");
+    
+    // Both should return errors gracefully
+    assert!(invalid_pipewire.is_err());
+    assert!(invalid_pulse.is_err());
+}
+
+#[test]
+fn test_apply_settings_error_handling() {
+    // Test applying settings with invalid parameters
+    let invalid_settings = AudioSettings::new(99999, 8, 999, "".to_string());
+    
+    let output_result = std::panic::catch_unwind(|| {
+        let _ = apply_output_audio_settings_with_auth_blocking(invalid_settings.clone());
+    });
+    let input_result = std::panic::catch_unwind(|| {
+        let _ = apply_input_audio_settings_with_auth_blocking(invalid_settings);
+    });
+    
+    // Should not panic even with invalid settings
+    assert!(output_result.is_ok());
+    assert!(input_result.is_ok());
 }

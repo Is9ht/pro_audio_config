@@ -1,6 +1,6 @@
 /*
  * Pro Audio Config - Audio Configuration Module
- * Version: 1.5
+ * Version: 1.6
  * Copyright (c) 2025 Peter Leukanič
  * Under MIT License
  * Feel free to share and modify
@@ -575,6 +575,19 @@ pub fn resolve_pipewire_device_name(node_id: &str) -> Result<String, String> {
     
     let output_str = String::from_utf8_lossy(&output.stdout);
     
+    // ✅ FIXED: Try to find device.name first (preferred for WirePlumber)
+    for line in output_str.lines() {
+        if line.contains("device.name") && line.contains('=') {
+            if let Some(name_part) = line.split('=').nth(1) {
+                let name = name_part.trim().trim_matches('"').to_string();
+                if !name.is_empty() {
+                    return Ok(name);
+                }
+            }
+        }
+    }
+    
+    // ✅ FIXED: Fall back to node.name
     for line in output_str.lines() {
         if line.contains("node.name") && line.contains('=') {
             if let Some(name_part) = line.split('=').nth(1) {
@@ -586,7 +599,7 @@ pub fn resolve_pipewire_device_name(node_id: &str) -> Result<String, String> {
         }
     }
     
-    Err(format!("Could not find node.name for PipeWire node {}", node_id))
+    Err(format!("Could not find device name for PipeWire node {}", node_id))
 }
 
 pub fn resolve_pulse_device_name(pulse_id: &str) -> Result<String, String> {
@@ -617,6 +630,23 @@ pub fn resolve_pulse_device_name(pulse_id: &str) -> Result<String, String> {
     }
     
     Err(format!("PulseAudio device {} not found", pulse_id))
+}
+
+// ✅ NEW: Helper function to extract actual device name from formatted string
+pub fn extract_actual_device_name(device_info: &str) -> Option<String> {
+    // Remove system prefix and extract the device identifier
+    let cleaned = device_info
+        .replace("PipeWire:", "")
+        .replace("PulseAudio:", "")
+        .replace("ALSA:", "")
+        .trim()
+        .to_string();
+    
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
 }
 
 #[cfg(test)]
@@ -755,5 +785,26 @@ mod tests {
         let system = detect_audio_system();
         // Should return one of the expected system names
         assert!(!system.is_empty());
+    }
+
+    #[test]
+    fn test_extract_actual_device_name() {
+        let pipewire_info = "PipeWire: alsa_output.usb-Audio_Device-00.analog-stereo";
+        let pulse_info = "PulseAudio: alsa_output.pci-0000_00_1f.3.analog-stereo";
+        let alsa_info = "ALSA: hw:0,0";
+        
+        assert_eq!(
+            extract_actual_device_name(pipewire_info).unwrap(),
+            "alsa_output.usb-Audio_Device-00.analog-stereo"
+        );
+        assert_eq!(
+            extract_actual_device_name(pulse_info).unwrap(),
+            "alsa_output.pci-0000_00_1f.3.analog-stereo"
+        );
+        assert_eq!(
+            extract_actual_device_name(alsa_info).unwrap(),
+            "hw:0,0"
+        );
+        assert!(extract_actual_device_name("").is_none());
     }
 }

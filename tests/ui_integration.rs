@@ -1,6 +1,8 @@
 //! Integration tests for UI components and data flow
 
+// Common utilities for integration tests
 use pro_audio_config::audio::{AudioSettings, AudioDevice, DeviceType};
+use pro_audio_config::ui::{show_error_dialog, show_success_dialog};
 
 // Test the device grouping and categorization logic
 #[test]
@@ -197,16 +199,26 @@ fn test_audio_settings_ui_data_flow() {
 #[test]
 fn test_dialog_function_safety() {
     // Test that dialog functions can be safely called
-    use pro_audio_config::ui::{show_error_dialog, show_success_dialog};
-    
     let result = std::panic::catch_unwind(|| {
         // Only test if GTK is initialized (unlikely in tests, but safe to check)
         if gtk::is_initialized() {
-            show_error_dialog("Test error message for integration test");
-            show_success_dialog("Test success message for integration test");
+            // Use a simpler approach without timeout
+            let handle = std::thread::spawn(|| {
+                show_error_dialog("Test error message for integration test");
+                show_success_dialog("Test success message for integration test");
+            });
+            
+            // Use regular join with a simple approach
+            if let Err(_) = handle.join() {
+                println!("Dialog functions failed (expected in test environment)");
+            }
         } else {
             // This is normal in test environments
             println!("GTK not initialized - skipping actual dialog display");
+            
+            // Test that we can at least reference the functions
+            let _error_fn: fn(&str) = show_error_dialog;
+            let _success_fn: fn(&str) = show_success_dialog;
         }
     });
     

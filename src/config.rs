@@ -1,142 +1,356 @@
 /*
- * Pro Audio Config - Configuration Management
- * Version: 1.5
+ * Pro Audio Config - Configuration Module  
+ * Version: 1.6
  * Copyright (c) 2025 Peter Leukanič
  * Under MIT License
- * Feel free to share and modify
- *
- * Configuration validation and script generation
+ * 
+ * Handles audio configuration for PipeWire and WirePlumber with authentication
+ * and multiple fallback approaches.
  */
 
+use std::path::Path;
 use std::process::Command;
-use whoami;
+use std::fs;
+use crate::audio::AudioSettings;
 
-use crate::audio::{AudioSettings, resolve_pipewire_device_name, resolve_pulse_device_name};
+/// Applies output audio settings with authentication
+pub fn apply_output_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
+    apply_audio_settings_with_auth(settings, "output")
+}
 
-pub fn validate_device_pattern(pattern: &str) -> Result<(), String> {
-    if pattern.is_empty() {
-        return Err("Device pattern cannot be empty".to_string());
-    }
+/// Applies input audio settings with authentication  
+pub fn apply_input_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
+    apply_audio_settings_with_auth(settings, "input")
+}
 
-    let dangerous_patterns = ["..", "/", "~", "$", "`"];
-    for dangerous in dangerous_patterns {
-        if pattern.contains(dangerous) {
-            return Err(format!("Device pattern contains dangerous sequence: '{}'", dangerous));
+/// Applies audio settings for user-specific configuration
+pub fn apply_user_audio_settings(settings: AudioSettings, tab_type: &str) -> Result<(), String> {
+    println!("Applying user-specific {} audio settings", tab_type);
+    update_audio_settings(&settings, false) // false = not system-wide
+}
+
+/// Main function to apply audio settings with authentication
+fn apply_audio_settings_with_auth(settings: AudioSettings, stream_type: &str) -> Result<(), String> {
+    println!("Applying {} audio settings with authentication: {}Hz/{}bit/{} samples", 
+             stream_type,
+             settings.sample_rate, settings.bit_depth, settings.buffer_size);
+    
+    // First try the new multi-approach configuration
+    match update_audio_settings(&settings, true) {
+        Ok(()) => {
+            println!("✓ Successfully applied {} settings using new configuration system", stream_type);
+            return Ok(());
+        }
+        Err(e) => {
+            println!("New configuration system failed: {}, falling back to legacy method...", e);
         }
     }
 
-    if pattern.len() > 256 {
-        return Err("Device pattern too long (max 256 characters)".to_string());
+    // Fall back to legacy WirePlumber configuration (only for older versions)
+    if should_use_legacy_wireplumber_config()? {
+        apply_legacy_wireplumber_config(&settings, stream_type)
+    } else {
+        Err("Legacy WirePlumber configuration not applicable for current WirePlumber version".to_string())
+    }
+}
+
+/// Checks if we should use legacy WirePlumber config (for versions < 0.5)
+fn should_use_legacy_wireplumber_config() -> Result<bool, String> {
+    match get_wireplumber_version() {
+        Ok(version) => {
+            println!("Detected WirePlumber version: {}", version);
+            // Use legacy config only for versions older than 0.5
+            let use_legacy = version < "0.5".to_string();
+            if use_legacy {
+                println!("Using legacy Lua configuration for WirePlumber < 0.5");
+            } else {
+                println!("Using modern JSON configuration for WirePlumber >= 0.5");
+            }
+            Ok(use_legacy)
+        }
+        Err(e) => {
+            println!("Could not detect WirePlumber version: {}, assuming modern version", e);
+            // If we can't detect version, assume modern and don't use legacy config
+            Ok(false)
+        }
+    }
+}
+
+/// Gets the WirePlumber version as a string
+fn get_wireplumber_version() -> Result<String, String> {
+    let output = Command::new("wpctl")
+        .args(["--version"])
+        .output()
+        .map_err(|e| format!("Failed to get WirePlumber version: {}", e))?;
+
+    if !output.status.success() {
+        return Err("wpctl version command failed".to_string());
     }
 
+    let version_output = String::from_utf8_lossy(&output.stdout);
+    
+    // Parse version from output (typically "WirePlumber 0.4.14" or similar)
+    for line in version_output.lines() {
+        if line.contains("WirePlumber") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let version_str = parts[1];
+                // Extract major.minor version (e.g., "0.4" from "0.4.14")
+                let version_parts: Vec<&str> = version_str.split('.').collect();
+                if version_parts.len() >= 2 {
+                    return Ok(format!("{}.{}", version_parts[0], version_parts[1]));
+                }
+                return Ok(version_str.to_string());
+            }
+        }
+    }
+
+    // Fallback: try wireplumber command directly
+    if let Ok(output) = Command::new("wireplumber")
+        .args(["--version"])
+        .output() {
+        let version_output = String::from_utf8_lossy(&output.stdout);
+        for line in version_output.lines() {
+            if line.contains("WirePlumber") || line.contains("wireplumber") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                for part in parts {
+                    // Look for version pattern like 0.4.14
+                    if part.chars().next().map_or(false, |c| c.is_numeric()) {
+                        let version_parts: Vec<&str> = part.split('.').collect();
+                        if version_parts.len() >= 2 {
+                            return Ok(format!("{}.{}", version_parts[0], version_parts[1]));
+                        }
+                        return Ok(part.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Err("Could not parse WirePlumber version".to_string())
+}
+
+/// Legacy WirePlumber configuration method (fallback for versions < 0.5)
+fn apply_legacy_wireplumber_config(settings: &AudioSettings, stream_type: &str) -> Result<(), String> {
+    println!("Applying legacy WirePlumber Lua configuration for version < 0.5");
+    
+    let config_content = generate_legacy_wireplumber_config(settings, stream_type);
+    let username = whoami::username();
+    let config_path = if stream_type == "output" {
+        format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-output.lua", username)
+    } else {
+        format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-input.lua", username)
+    };
+
+    // Create directory if it doesn't exist
+    if let Some(parent) = Path::new(&config_path).parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+
+    // Write configuration file
+    fs::write(&config_path, config_content)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+    println!("Legacy WirePlumber Lua configuration written successfully");
+    println!("- {}", config_path);
+
+    // Restart audio services using legacy method
+    restart_audio_services(true)?;
+
+    println!("Audio services restarted successfully");
     Ok(())
 }
 
-pub struct ServiceConfig {
-    pub username: String,
-    pub user_id: u32,
-    pub runtime_dir: String,
-    pub dbus_address: String,
+/// Generates legacy WirePlumber Lua configuration content for versions < 0.5
+fn generate_legacy_wireplumber_config(settings: &AudioSettings, stream_type: &str) -> String {
+    let device_pattern = if settings.device_id == "default" {
+        "alsa.*".to_string()
+    } else {
+        settings.device_id.clone()
+    };
+
+    let audio_format = match settings.bit_depth {
+        16 => "S16LE",
+        24 => "S24LE", 
+        32 => "S32LE",
+        _ => "S24LE"
+    };
+
+    format!(
+        r#"-- Pro Audio Config Legacy Lua Configuration
+-- For WirePlumber versions < 0.5
+-- Auto-generated for {} settings
+
+alsa_monitor.rules = {{
+  {{
+    matches = {{
+      {{
+        {{ "device.name", "matches", "{}" }},
+      }},
+    }},
+    apply_properties = {{
+      ["audio.format"] = "{}",
+      ["audio.rate"] = {},
+      ["api.alsa.period-size"] = {},
+      ["api.alsa.period-num"] = 2,
+      ["api.alsa.headroom"] = 8192,
+    }},
+  }}
+}}
+"#,
+        stream_type,
+        device_pattern,
+        audio_format,
+        settings.sample_rate,
+        settings.buffer_size
+    )
 }
 
-impl ServiceConfig {
-    pub fn for_current_user() -> Result<Self, String> {
-        let username = whoami::username();
-        
-        let output = std::process::Command::new("id")
-            .arg("-u")
-            .arg(&username)
-            .output()
-            .map_err(|e| format!("Failed to get user ID: {}", e))?;
-            
-        if !output.status.success() {
-            return Err("Failed to get user ID".to_string());
-        }
-        
-        let user_id_str = String::from_utf8_lossy(&output.stdout);
-        let user_id_str = user_id_str.trim();
-        let user_id: u32 = user_id_str.parse()
-            .map_err(|e| format!("Invalid user ID: {}", e))?;
-            
-        let runtime_dir = format!("/run/user/{}", user_id);
-        let dbus_address = format!("unix:path={}/bus", runtime_dir);
-        
-        Ok(Self {
-            username,
-            user_id,
-            runtime_dir,
-            dbus_address,
-        })
-    }
+#[allow(dead_code)] // Used
+/// Generates modern WirePlumber JSON configuration content for versions >= 0.5
+fn generate_wireplumber_config(settings: &AudioSettings, _stream_type: &str) -> String {
+    let device_pattern = if settings.device_id == "default" {
+        "~alsa.*".to_string()
+    } else {
+        settings.device_id.clone()
+    };
 
-    pub fn validate(&self) -> Result<(), String> {
-        if self.username.is_empty() {
-            return Err("Username cannot be empty".to_string());
+    let audio_format = match settings.bit_depth {
+        16 => "S16LE",
+        24 => "S24LE", 
+        32 => "S32LE",
+        _ => "S24LE"
+    };
+
+    format!(
+        r#"{{
+  "alsa-monitor": {{
+    "rules": [
+      {{
+        "matches": [
+          {{
+            "device.name": "{}"
+          }}
+        ],
+        "actions": [
+          {{
+            "update-props": {{
+              "audio.format": "{}",
+              "audio.rate": {},
+              "api.alsa.period-size": {},
+              "api.alsa.period-num"] = 2,
+              "api.alsa.headroom"] = 8192
+            }}
+          }}
+        ]
+      }}
+    ]
+  }}
+}}"#,
+        device_pattern,
+        audio_format,
+        settings.sample_rate,
+        settings.buffer_size
+    )
+}
+
+/// Main function to apply audio settings using multiple configuration approaches with fallbacks
+pub fn update_audio_settings(settings: &AudioSettings, system_wide: bool) -> Result<(), String> {
+    println!("Applying {} audio settings: {}Hz/{}bit/{} samples", 
+             if system_wide { "system-wide" } else { "user" },
+             settings.sample_rate, settings.bit_depth, settings.buffer_size);
+    
+    // Clean up conflicting configs first
+    if system_wide {
+        cleanup_user_pipewire_configs()?;
+        create_system_pipewire_fragment(settings)?;
+    } else {
+        cleanup_system_pipewire_configs()?;
+        create_user_pipewire_fragment(settings)?;
+    }
+    
+    // Modify the config creation functions to respect system_wide preference
+    if system_wide {
+        // Force system directories
+        create_system_pipewire_fragment(settings)?;
+    } else {
+        // Try user directories first
+        create_user_pipewire_fragment(settings)?;
+    }
+    
+    // Try multiple configuration approaches in order of preference
+    let mut success = match create_pipewire_fragment(settings) {
+        Ok(_) => {
+            println!("✓ Successfully created PipeWire config fragment");
+            true
         }
+        Err(e) => {
+            println!("PipeWire fragment approach failed: {}, trying next approach...", e);
+            false
+        }
+    };
+    
+    if !success {
+        // Approach 2: Create WirePlumber config (if available)
+        match create_wireplumber_config_new(settings) {
+            Ok(_) => {
+                println!("✓ Successfully created WirePlumber config");
+                success = true;
+            }
+            Err(e) => {
+                println!("WirePlumber approach failed: {}, trying final approach...", e);
+                
+                // Approach 3: Modify main pipewire.conf as fallback
+                match modify_main_pipewire_config(settings) {
+                    Ok(_) => {
+                        println!("✓ Successfully modified main PipeWire config");
+                        success = true;
+                    }
+                    Err(e) => {
+                        return Err(format!("All configuration approaches failed: {}", e));
+                    }
+                }
+            }
+        }
+    }
+    
+    if success {
+        // Wait a bit for the config to be written
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        restart_audio_services(false)?;
+        println!("✓ Audio services restarted successfully");
         
-        if self.user_id == 0 {
-            return Err("Invalid user ID (0)".to_string());
-        }
-        
-        if self.runtime_dir.is_empty() || !self.runtime_dir.starts_with("/run/user/") {
-            return Err("Invalid runtime directory".to_string());
-        }
-        
-        if self.dbus_address.is_empty() || !self.dbus_address.starts_with("unix:path=") {
-            return Err("Invalid DBus address".to_string());
-        }
+        // Verify the settings were applied
+        verify_settings_applied(settings)?;
         
         Ok(())
+    } else {
+        Err("Failed to apply audio settings through any method".to_string())
     }
 }
 
-pub struct ScriptGenerator {
-    pub audio_settings: AudioSettings,
-    pub service_config: ServiceConfig,
-}
+/// Creates a user-specific PipeWire configuration fragment and cleans up system configs
+fn create_user_pipewire_fragment(settings: &AudioSettings) -> Result<(), String> {
+    // Use user directories only
+    let username = whoami::username();
+    let config_dirs = [
+        format!("/home/{}/.config/pipewire/pipewire.conf.d", username),
+    ];
 
-impl ScriptGenerator {
-    pub fn new(audio_settings: AudioSettings) -> Result<Self, String> {
-        audio_settings.validate()?;
-        let service_config = ServiceConfig::for_current_user()?;
-        service_config.validate()?;
-        
-        Ok(Self {
-            audio_settings,
-            service_config,
-        })
-    }
-
-    pub fn generate_script(&self) -> Result<String, String> {
-        self.audio_settings.validate()?;
-        self.service_config.validate()?;
-
-        let device_pattern = extract_device_pattern(&self.audio_settings.device_id)?;
-        let format = self.audio_settings.get_audio_format()?;
-
-        Ok(self.build_script_template(&device_pattern, format))
-    }
-
-    pub fn generate_system_pipewire_config(&self) -> String {
-        format!(
-            r#"
-# System-wide PipeWire configuration for pro audio
-# This affects all applications using PipeWire
+    let config_content = format!(
+        r#"# Pro Audio Config - User High Priority Settings
+# This file overrides default PipeWire settings
 
 context.properties = {{
     default.clock.rate = {}
     default.clock.quantum = {}
-    default.clock.min-quantum = {}
-    default.clock.max-quantum = {}
-    default.clock.quantum-limit = 8192
+    default.clock.allowed-rates = [ {} ]
+    # Disable rate/quantum checking to ensure our settings are applied
+    settings.check-quantum = false
+    settings.check-rate = false
 }}
 
-stream.properties = {{
-    node.latency = {}/{}
-    resample.quality = 4
-}}
-
-# RT settings for low latency
 context.modules = [
     {{
         name = libpipewire-module-rt
@@ -146,1198 +360,613 @@ context.modules = [
             rt.time.soft = 200000
             rt.time.hard = 200000
         }}
+        flags = [ ifexists nofail ]
     }}
-]
-"#,
-            self.audio_settings.sample_rate,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size * 2,  // max-quantum as 2x buffer_size
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate
-        )
+]"#,
+        settings.sample_rate,
+        settings.buffer_size,
+        settings.sample_rate
+    );
+
+    for dir in &config_dirs {
+        let config_path = format!("{}/99-pro-audio-high-priority.conf", dir);
+        
+        if let Some(parent) = Path::new(&config_path).parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+
+        if fs::write(&config_path, &config_content).is_ok() {
+            println!("✓ User PipeWire config created: {}", config_path);
+            cleanup_old_pipewire_configs(&dir)?;
+            
+            // CLEAN UP SYSTEM CONFIGS WHEN USING USER CONFIG
+            cleanup_system_pipewire_configs()?;
+            
+            return Ok(());
+        }
     }
 
-    pub fn generate_global_audio_script(&self) -> Result<String, String> {
-        self.audio_settings.validate()?;
-        self.service_config.validate()?;
-
-        let device_pattern = extract_device_pattern(&self.audio_settings.device_id)?;
-        let format = self.audio_settings.get_audio_format()?;
-        let system_config = self.generate_system_pipewire_config();
-
-        Ok(self.build_global_script_template(&device_pattern, format, &system_config))
-    }
-
-    fn build_script_template(&self, device_pattern: &str, format: &str) -> String {
-        format!(
-            r#"#!/bin/bash
-set -e
-
-echo "=== Starting Audio Configuration ==="
-echo "Running as: $(whoami)"
-echo "Target user: {}"
-echo "Target device: {}"
-echo "Device pattern: {}"
-
-# Get user ID and runtime directory
-USER_ID={}
-RUNTIME_DIR="{}"
-DBUS_ADDRESS="{}"
-
-echo "User ID: $USER_ID"
-echo "Runtime directory: $RUNTIME_DIR"
-
-# Function to run commands as user with proper environment
-run_as_user() {{
-    sudo -u {} XDG_RUNTIME_DIR="$RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" bash -c "$1"
-}}
-
-echo "Testing user service access..."
-if run_as_user "systemctl --user daemon-reload"; then
-    echo "User service access: OK"
-else
-    echo "User service access: Limited - some operations may fail"
-fi
-
-echo "Stopping audio services..."
-run_as_user "systemctl --user stop wireplumber pipewire pipewire-pulse" || true
-sleep 2
-
-echo "Killing any remaining audio processes..."
-run_as_user "pkill -f wireplumber" || true
-run_as_user "pkill -f pipewire" || true
-run_as_user "pkill -f pipewire-pulse" || true
-sleep 1
-
-echo "Creating WirePlumber configuration..."
-CONFIG_DIR="/home/{}/.config/wireplumber/main.lua.d"
-run_as_user "mkdir -p \"$CONFIG_DIR\""
-
-# Create custom configuration targeting specific device
-run_as_user "cat > \"$CONFIG_DIR/99-custom-audio.lua\"" << 'EOF'
-alsa_monitor.rules = {{
-    {{
-        matches = {{
-            {{
-                {{ "device.name", "matches", "{}" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["audio.format"] = "{}",
-            ["api.alsa.period-size"] = {},
-            ["api.alsa.period-num"] = 2,
-            ["api.alsa.headroom"] = 8192,
-        }},
-    }},
-}}
-EOF
-
-echo "Configuration created successfully"
-
-echo "Restarting audio services..."
-run_as_user "systemctl --user daemon-reload"
-run_as_user "systemctl --user start wireplumber" || echo "Failed to start wireplumber"
-sleep 2
-run_as_user "systemctl --user start pipewire" || echo "Failed to start pipewire"
-run_as_user "systemctl --user start pipewire-pulse" || echo "Failed to start pipewire-pulse"
-sleep 3
-
-echo "Setting buffer size..."
-run_as_user "pw-metadata -n settings 0 clock.force-quantum {}" || echo "Note: Could not set quantum - continuing anyway"
-
-sleep 2
-
-echo "Verifying audio services are running..."
-run_as_user "systemctl --user is-active wireplumber && echo 'WirePlumber: active' || echo 'WirePlumber: inactive'"
-run_as_user "systemctl --user is-active pipewire && echo 'PipeWire: active' || echo 'PipeWire: inactive'"
-
-echo "Current audio settings:"
-run_as_user "pw-cli info 0 2>/dev/null | grep -E '(default.clock.rate|audio.format|default.clock.quantum)'" || echo "Could not query settings - but services may still be working"
-
-echo ""
-echo "=== Audio configuration completed ==="
-echo "Applied settings:"
-echo "  Sample Rate: {} Hz"
-echo "  Bit Depth: {} bit"
-echo "  Buffer Size: {} samples"
-echo "  Target Device: {}"
-echo "  Device Pattern: {}"
-echo ""
-echo "Note: Some settings may require application restart to take effect"
-"#,
-            self.service_config.username,
-            self.audio_settings.device_id,
-            device_pattern,
-            self.service_config.user_id,
-            self.service_config.runtime_dir,
-            self.service_config.dbus_address,
-            self.service_config.username,
-            self.service_config.username,
-            device_pattern,
-            self.audio_settings.sample_rate,
-            format,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.bit_depth,
-            self.audio_settings.buffer_size,
-            self.audio_settings.device_id,
-            device_pattern,
-        )
-    }
-
-    fn build_global_script_template(&self, device_pattern: &str, format: &str, system_config: &str) -> String {
-        format!(
-            r#"#!/bin/bash
-set -e
-
-echo "=== Starting Global Audio Configuration ==="
-echo "Running as: $(whoami)"
-echo "Target user: {}"
-echo "Target device: {}"
-echo "Device pattern: {}"
-echo "Buffer size: {} samples"
-
-# Get user ID and runtime directory
-USER_ID={}
-RUNTIME_DIR="{}"
-DBUS_ADDRESS="{}"
-
-echo "User ID: $USER_ID"
-echo "Runtime directory: $RUNTIME_DIR"
-
-# Function to run commands as user with proper environment
-run_as_user() {{
-    sudo -u {} XDG_RUNTIME_DIR="$RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" bash -c "$1"
-}}
-
-echo "Testing user service access..."
-if run_as_user "systemctl --user daemon-reload"; then
-    echo "User service access: OK"
-else
-    echo "User service access: Limited - some operations may fail"
-fi
-
-echo "Stopping audio services..."
-run_as_user "systemctl --user stop wireplumber pipewire pipewire-pulse" || true
-sleep 2
-
-echo "Killing any remaining audio processes..."
-run_as_user "pkill -f wireplumber" || true
-run_as_user "pkill -f pipewire" || true
-run_as_user "pkill -f pipewire-pulse" || true
-sleep 1
-
-echo "Creating system-wide PipeWire configuration..."
-# System-wide configuration (requires root)
-mkdir -p /etc/pipewire/pipewire.conf.d
-cat > /etc/pipewire/pipewire.conf.d/99-pro-audio.conf << 'EOF'
-{}
-EOF
-
-echo "Creating user PipeWire configuration..."
-# User-specific configuration
-run_as_user "mkdir -p /home/{}/.config/pipewire/pipewire.conf.d"
-run_as_user "cat > /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf" << 'EOF'
-{}
-EOF
-
-echo "Creating enhanced WirePlumber configuration..."
-CONFIG_DIR="/home/{}/.config/wireplumber/main.lua.d"
-run_as_user "mkdir -p \"$CONFIG_DIR\""
-
-# Create enhanced configuration for global device matching
-run_as_user "cat > \"$CONFIG_DIR/99-global-audio.lua\"" << 'EOF'
-alsa_monitor.rules = {{
-    -- Specific device configuration
-    {{
-        matches = {{
-            {{
-                {{ "device.name", "matches", "{}" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["audio.format"] = "{}",
-            ["api.alsa.period-size"] = {},
-            ["api.alsa.period-num"] = 2,
-            ["api.alsa.headroom"] = 8192,
-        }},
-    }},
-    -- Global input device configuration
-    {{
-        matches = {{
-            {{
-                {{ "node.name", "matches", "alsa_input.*" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["api.alsa.period-size"] = {},
-        }},
-    }},
-    -- Global output device configuration  
-    {{
-        matches = {{
-            {{
-                {{ "node.name", "matches", "alsa_output.*" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["api.alsa.period-size"] = {},
-        }},
-    }},
-    -- Fallback for any audio device
-    {{
-        matches = {{
-            {{
-                {{ "media.class", "matches", "Audio/*" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["api.alsa.period-size"] = {},
-        }},
-    }}
-}}
-EOF
-
-echo "All configurations created successfully"
-
-echo "Restarting audio services..."
-run_as_user "systemctl --user daemon-reload"
-run_as_user "systemctl --user start wireplumber" || echo "Failed to start wireplumber"
-sleep 2
-run_as_user "systemctl --user start pipewire" || echo "Failed to start pipewire"
-run_as_user "systemctl --user start pipewire-pulse" || echo "Failed to start pipewire-pulse"
-sleep 3
-
-echo "Setting global buffer size..."
-run_as_user "pw-metadata -n settings 0 clock.force-quantum {}" || echo "Note: Quantum setting applied via config"
-
-sleep 2
-
-echo "Verifying audio services are running..."
-run_as_user "systemctl --user is-active wireplumber && echo 'WirePlumber: active' || echo 'WirePlumber: inactive'"
-run_as_user "systemctl --user is-active pipewire && echo 'PipeWire: active' || echo 'PipeWire: inactive'"
-
-echo "Verifying global settings..."
-echo "=== System-wide Settings ==="
-run_as_user "pw-cli info 0 2>/dev/null | grep -E '(default.clock.rate|default.clock.quantum|audio.format)'" || echo "Could not query all settings"
-
-echo "=== Current Audio Nodes ==="
-run_as_user "pw-cli list-objects Node 2>/dev/null | grep -E '(node.name|audio.rate|audio.format)' | head -20" || echo "Could not list audio nodes"
-
-echo ""
-echo "=== Global audio configuration completed ==="
-echo "Applied GLOBAL settings:"
-echo "  Sample Rate: {} Hz (system-wide)"
-echo "  Bit Depth: {} bit"
-echo "  Buffer Size: {} samples (system-wide)"
-echo "  Target Device: {}"
-echo "  Device Pattern: {}"
-echo ""
-echo "Configuration files created:"
-echo "  - /etc/pipewire/pipewire.conf.d/99-pro-audio.conf (system-wide)"
-echo "  - /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf (user)"
-echo "  - /home/{}/.config/wireplumber/main.lua.d/99-global-audio.lua (device rules)"
-echo ""
-echo "Note: These settings affect ALL applications using PipeWire"
-"#,
-            self.service_config.username,
-            self.audio_settings.device_id,
-            device_pattern,
-            self.audio_settings.buffer_size,
-            self.service_config.user_id,
-            self.service_config.runtime_dir,
-            self.service_config.dbus_address,
-            self.service_config.username,
-            system_config,
-            self.service_config.username,
-            self.service_config.username,
-            system_config,
-            self.service_config.username,
-            device_pattern,
-            self.audio_settings.sample_rate,
-            format,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.bit_depth,
-            self.audio_settings.buffer_size,
-            self.audio_settings.device_id,
-            device_pattern,
-            self.service_config.username,
-            self.service_config.username,
-        )
-    }
+    Err("Failed to write user PipeWire configuration".to_string())
 }
 
-pub struct InputScriptGenerator {
-    pub audio_settings: AudioSettings,
-    pub service_config: ServiceConfig,
-}
+/// Creates a system-wide PipeWire configuration fragment and cleans up user configs
+fn create_system_pipewire_fragment(settings: &AudioSettings) -> Result<(), String> {
+    // Use system directories only
+    let config_dirs = [
+        "/etc/pipewire/pipewire.conf.d".to_string(),
+    ];
 
-impl InputScriptGenerator {
-    pub fn new(audio_settings: AudioSettings) -> Result<Self, String> {
-        audio_settings.validate()?;
-        let service_config = ServiceConfig::for_current_user()?;
-        service_config.validate()?;
-        
-        Ok(Self {
-            audio_settings,
-            service_config,
-        })
-    }
+    let config_content = format!(
+        r#"# Pro Audio Config - System-wide High Priority Settings
+# This file overrides default PipeWire settings
 
-    pub fn generate_script(&self) -> Result<String, String> {
-        self.audio_settings.validate()?;
-        self.service_config.validate()?;
-
-        let device_pattern = extract_input_device_pattern(&self.audio_settings.device_id)?;
-        let format = self.audio_settings.get_audio_format()?;
-
-        Ok(self.build_input_script_template(&device_pattern, format))
-    }
-
-    pub fn generate_global_audio_script(&self) -> Result<String, String> {
-        self.audio_settings.validate()?;
-        self.service_config.validate()?;
-
-        let device_pattern = extract_input_device_pattern(&self.audio_settings.device_id)?;
-        let format = self.audio_settings.get_audio_format()?;
-        
-        let system_config = format!(
-            r#"
-# System-wide PipeWire configuration for pro audio input
 context.properties = {{
     default.clock.rate = {}
     default.clock.quantum = {}
-    default.clock.min-quantum = {}
-    default.clock.max-quantum = {}
+    default.clock.allowed-rates = [ {} ]
+    # Disable rate/quantum checking to ensure our settings are applied
+    settings.check-quantum = false
+    settings.check-rate = false
 }}
 
-stream.properties = {{
-    node.latency = {}/{}
-    resample.quality = 4
-}}
-"#,
-            self.audio_settings.sample_rate,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size * 2,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate
-        );
-
-        Ok(self.build_global_input_script_template(&device_pattern, format, &system_config))
-    }
-
-    fn build_input_script_template(&self, device_pattern: &str, format: &str) -> String {
-        format!(
-            r#"#!/bin/bash
-set -e
-
-echo "=== Starting Input Audio Configuration ==="
-echo "Running as: $(whoami)"
-echo "Target user: {}"
-echo "Target input device: {}"
-echo "Input device pattern: {}"
-
-# Get user ID and runtime directory
-USER_ID={}
-RUNTIME_DIR="{}"
-DBUS_ADDRESS="{}"
-
-echo "User ID: $USER_ID"
-echo "Runtime directory: $RUNTIME_DIR"
-
-# Function to run commands as user with proper environment
-run_as_user() {{
-    sudo -u {} XDG_RUNTIME_DIR="$RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" bash -c "$1"
-}}
-
-echo "Testing user service access..."
-if run_as_user "systemctl --user daemon-reload"; then
-    echo "User service access: OK"
-else
-    echo "User service access: Limited - some operations may fail"
-fi
-
-echo "Stopping audio services..."
-run_as_user "systemctl --user stop wireplumber pipewire pipewire-pulse" || true
-sleep 2
-
-echo "Killing any remaining audio processes..."
-run_as_user "pkill -f wireplumber" || true
-run_as_user "pkill -f pipewire" || true
-run_as_user "pkill -f pipewire-pulse" || true
-sleep 1
-
-echo "Creating WirePlumber input configuration..."
-CONFIG_DIR="/home/{}/.config/wireplumber/main.lua.d"
-run_as_user "mkdir -p \"$CONFIG_DIR\""
-
-# Create custom input configuration targeting specific device
-run_as_user "cat > \"$CONFIG_DIR/99-custom-input-audio.lua\"" << 'EOF'
-alsa_monitor.rules = {{
+context.modules = [
     {{
-        matches = {{
-            {{
-                {{ "device.name", "matches", "{}" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["audio.format"] = "{}",
-            ["api.alsa.period-size"] = {},
-            ["api.alsa.period-num"] = 2,
-            ["api.alsa.headroom"] = 8192,
-        }},
-    }},
-}}
-EOF
-
-echo "Input configuration created successfully"
-
-echo "Restarting audio services..."
-run_as_user "systemctl --user daemon-reload"
-run_as_user "systemctl --user start wireplumber" || echo "Failed to start wireplumber"
-sleep 2
-run_as_user "systemctl --user start pipewire" || echo "Failed to start pipewire"
-run_as_user "systemctl --user start pipewire-pulse" || echo "Failed to start pipewire-pulse"
-sleep 3
-
-echo "Setting buffer size..."
-run_as_user "pw-metadata -n settings 0 clock.force-quantum {}" || echo "Note: Could not set quantum - continuing anyway"
-
-sleep 2
-
-echo "Verifying audio services are running..."
-run_as_user "systemctl --user is-active wireplumber && echo 'WirePlumber: active' || echo 'WirePlumber: inactive'"
-run_as_user "systemctl --user is-active pipewire && echo 'PipeWire: active' || echo 'PipeWire: inactive'"
-
-echo "Current input audio settings:"
-run_as_user "pw-cli info 0 2>/dev/null | grep -E '(default.clock.rate|audio.format|default.clock.quantum)'" || echo "Could not query settings"
-
-echo ""
-echo "=== Input audio configuration completed ==="
-echo "Applied input settings:"
-echo "  Sample Rate: {} Hz"
-echo "  Bit Depth: {} bit"
-echo "  Buffer Size: {} samples"
-echo "  Target Input Device: {}"
-echo "  Input Device Pattern: {}"
-echo ""
-echo "Note: Some settings may require application restart to take effect"
-"#,
-            self.service_config.username,
-            self.audio_settings.device_id,
-            device_pattern,
-            self.service_config.user_id,
-            self.service_config.runtime_dir,
-            self.service_config.dbus_address,
-            self.service_config.username,
-            self.service_config.username,
-            device_pattern,
-            self.audio_settings.sample_rate,
-            format,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.bit_depth,
-            self.audio_settings.buffer_size,
-            self.audio_settings.device_id,
-            device_pattern,
-        )
-    }
-
-    fn build_global_input_script_template(&self, device_pattern: &str, format: &str, system_config: &str) -> String {
-        format!(
-            r#"#!/bin/bash
-set -e
-
-echo "=== Starting Global Input Audio Configuration ==="
-echo "Running as: $(whoami)"
-echo "Target user: {}"
-echo "Target input device: {}"
-echo "Input device pattern: {}"
-
-# Get user ID and runtime directory
-USER_ID={}
-RUNTIME_DIR="{}"
-DBUS_ADDRESS="{}"
-
-echo "User ID: $USER_ID"
-echo "Runtime directory: $RUNTIME_DIR"
-
-# Function to run commands as user with proper environment
-run_as_user() {{
-    sudo -u {} XDG_RUNTIME_DIR="$RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" bash -c "$1"
-}}
-
-echo "Creating system-wide PipeWire configuration for input..."
-mkdir -p /etc/pipewire/pipewire.conf.d
-cat > /etc/pipewire/pipewire.conf.d/99-pro-audio-input.conf << 'EOF'
-{}
-EOF
-
-echo "Creating user PipeWire configuration..."
-run_as_user "mkdir -p /home/{}/.config/pipewire/pipewire.conf.d"
-run_as_user "cat > /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-input.conf" << 'EOF'
-{}
-EOF
-
-echo "Creating enhanced WirePlumber input configuration..."
-CONFIG_DIR="/home/{}/.config/wireplumber/main.lua.d"
-run_as_user "mkdir -p \"$CONFIG_DIR\""
-
-# Create enhanced input configuration
-run_as_user "cat > \"$CONFIG_DIR/99-global-input-audio.lua\"" << 'EOF'
-alsa_monitor.rules = {{
-    -- Specific input device configuration
-    {{
-        matches = {{
-            {{
-                {{ "device.name", "matches", "{}" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["audio.format"] = "{}",
-            ["api.alsa.period-size"] = {},
-            ["api.alsa.period-num"] = 2,
-            ["api.alsa.headroom"] = 8192,
-        }},
-    }},
-    -- Global input device configuration
-    {{
-        matches = {{
-            {{
-                {{ "node.name", "matches", "alsa_input.*" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["api.alsa.period-size"] = {},
-        }},
-    }},
-    -- Fallback for any audio input device
-    {{
-        matches = {{
-            {{
-                {{ "media.class", "matches", "Audio/Source" }},
-            }},
-        }},
-        apply_properties = {{
-            ["audio.rate"] = {},
-            ["api.alsa.period-size"] = {},
-        }},
+        name = libpipewire-module-rt
+        args = {{
+            nice.level = -11
+            rt.prio = 88
+            rt.time.soft = 200000
+            rt.time.hard = 200000
+        }}
+        flags = [ ifexists nofail ]
     }}
+]"#,
+        settings.sample_rate,
+        settings.buffer_size,
+        settings.sample_rate
+    );
+
+    for dir in &config_dirs {
+        let config_path = format!("{}/99-pro-audio-high-priority.conf", dir);
+        
+        if let Some(parent) = Path::new(&config_path).parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+	
+        if fs::write(&config_path, &config_content).is_ok() {
+            println!("✓ PipeWire config created: {}", config_path);
+            
+            // Also remove any lower priority configs we might have created
+            cleanup_old_pipewire_configs(&dir)?;
+            
+            // Clean up configs in the opposite scope to prevent conflicts
+            if dir.contains("/home/") {
+                // We're creating user config, clean up system
+                cleanup_system_pipewire_configs()?;
+            } else {
+                // We're creating system config, clean up user  
+                cleanup_user_pipewire_configs()?;
+            }
+            
+            return Ok(());
+        }
+    }
+    
+    Err("Failed to write PipeWire configuration to any location".to_string())
+}
+
+/// Clean up system-wide pipewire config files
+fn cleanup_system_pipewire_configs() -> Result<(), String> {
+    let system_configs = [
+        "/etc/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf",
+        "/etc/pipewire/pipewire.conf.d/99-pro-audio.conf",
+        "/etc/pipewire/pipewire.conf.d/50-pro-audio.conf",
+    ];
+    
+    let mut removed_count = 0;
+    for config_path in &system_configs {
+        if Path::new(config_path).exists() {
+            match fs::remove_file(config_path) {
+                Ok(_) => {
+                    println!("✓ Removed system config: {}", config_path);
+                    removed_count += 1;
+                }
+                Err(e) => {
+                    println!("Note: Could not remove system config {}: {}", config_path, e);
+                }
+            }
+        }
+    }
+    
+    if removed_count > 0 {
+        println!("✓ Removed {} system configuration files", removed_count);
+    }
+    
+    Ok(())
+}
+
+/// Clean up user-specific pipewire config files  
+fn cleanup_user_pipewire_configs() -> Result<(), String> {
+    let username = whoami::username();
+    let user_configs = [
+        format!("/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf", username),
+        format!("/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf", username),
+        format!("/home/{}/.config/pipewire/pipewire.conf.d/50-pro-audio.conf", username),
+    ];
+    
+    let mut removed_count = 0;
+    for config_path in &user_configs {
+        if Path::new(config_path).exists() {
+            match fs::remove_file(config_path) {
+                Ok(_) => {
+                    println!("✓ Removed user config: {}", config_path);
+                    removed_count += 1;
+                }
+                Err(e) => {
+                    println!("Note: Could not remove user config {}: {}", config_path, e);
+                }
+            }
+        }
+    }
+    
+    if removed_count > 0 {
+        println!("✓ Removed {} user configuration files", removed_count);
+    }
+    
+    Ok(())
+}
+
+/// Creates a PipeWire configuration fragment file with higher priority
+fn create_pipewire_fragment(settings: &AudioSettings) -> Result<(), String> {
+    let config_content = format!(
+        r#"# Pro Audio Config - High Priority Settings
+# This file overrides default PipeWire settings
+
+context.properties = {{
+    default.clock.rate = {}
+    default.clock.quantum = {}
+    default.clock.allowed-rates = [ {} ]
+    # Disable rate/quantum checking to ensure our settings are applied
+    settings.check-quantum = false
+    settings.check-rate = false
 }}
-EOF
 
-echo "All input configurations created successfully"
+context.modules = [
+    {{
+        name = libpipewire-module-rt
+        args = {{
+            nice.level = -11
+            rt.prio = 88
+            rt.time.soft = 200000
+            rt.time.hard = 200000
+        }}
+        flags = [ ifexists nofail ]
+    }}
+]"#,
+        settings.sample_rate,
+        settings.buffer_size,
+        settings.sample_rate
+    );
 
-echo "Restarting audio services for input configuration..."
-run_as_user "systemctl --user stop wireplumber pipewire pipewire-pulse" || true
-sleep 2
-run_as_user "systemctl --user daemon-reload"
-run_as_user "systemctl --user start wireplumber" || echo "Failed to start wireplumber"
-sleep 2
-run_as_user "systemctl --user start pipewire" || echo "Failed to start pipewire"
-run_as_user "systemctl --user start pipewire-pulse" || echo "Failed to start pipewire-pulse"
-sleep 3
+    // Try multiple standard locations - use higher number for higher priority
+    let username = whoami::username();
+    let config_dirs = [
+        format!("/home/{}/.config/pipewire/pipewire.conf.d", username),
+        "/etc/pipewire/pipewire.conf.d".to_string(),
+    ];
 
-echo "Setting global input buffer size..."
-run_as_user "pw-metadata -n settings 0 clock.force-quantum {}" || echo "Note: Quantum setting applied via config"
+    for dir in &config_dirs {
+        let config_path = format!("{}/99-pro-audio-high-priority.conf", dir);
+        
+        if let Some(parent) = Path::new(&config_path).parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
 
-sleep 2
-
-echo "Verifying input audio settings..."
-run_as_user "pw-cli info 0 2>/dev/null | grep -E '(default.clock.rate|default.clock.quantum)'" || echo "Could not query all settings"
-
-echo "=== Input Audio Nodes ==="
-run_as_user "pw-cli list-objects Node 2>/dev/null | grep -i input | head -10" || echo "Could not list input nodes"
-
-echo ""
-echo "=== Global input audio configuration completed ==="
-echo "Applied GLOBAL input settings:"
-echo "  Sample Rate: {} Hz"
-echo "  Bit Depth: {} bit"
-echo "  Buffer Size: {} samples"
-echo "  Target Input Device: {}"
-echo "  Input Device Pattern: {}"
-echo ""
-echo "Configuration files created:"
-echo "  - /etc/pipewire/pipewire.conf.d/99-pro-audio-input.conf"
-echo "  - /home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-input.conf"
-echo "  - /home/{}/.config/wireplumber/main.lua.d/99-global-input-audio.lua"
-"#,
-            self.service_config.username,
-            self.audio_settings.device_id,
-            device_pattern,
-            self.service_config.user_id,
-            self.service_config.runtime_dir,
-            self.service_config.dbus_address,
-            self.service_config.username,
-            system_config,
-            self.service_config.username,
-            self.service_config.username,
-            system_config,
-            self.service_config.username,
-            device_pattern,
-            self.audio_settings.sample_rate,
-            format,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.buffer_size,
-            self.audio_settings.buffer_size,
-            self.audio_settings.sample_rate,
-            self.audio_settings.bit_depth,
-            self.audio_settings.buffer_size,
-            self.audio_settings.device_id,
-            device_pattern,
-            self.service_config.username,
-            self.service_config.username,
-        )
+        if fs::write(&config_path, &config_content).is_ok() {
+            println!("✓ PipeWire config created: {}", config_path);
+            
+            // Also remove any lower priority configs we might have created
+            cleanup_old_pipewire_configs(&dir)?;
+            
+            return Ok(());
+        }
     }
+
+    Err("Failed to write PipeWire configuration to any location".to_string())
 }
 
-// Device Pattern Extraction
-pub fn extract_device_pattern(device_id: &str) -> Result<String, String> {
-    match device_id {
-        "default" => detect_current_default_device_name()
-            .map_err(|e| format!("Failed to detect default device: {}", e)),
-        id if id.starts_with("alsa:") => {
-            let alsa_name = id.trim_start_matches("alsa:");
-            Ok(if alsa_name.contains(".") {
-                alsa_name.to_string()
+/// Clean up old pipewire config files to avoid conflicts
+fn cleanup_old_pipewire_configs(dir: &str) -> Result<(), String> {
+    let old_configs = [
+        format!("{}/99-pro-audio.conf", dir),
+        format!("{}/50-pro-audio.conf", dir),
+    ];
+    
+    for old_config in &old_configs {
+        if Path::new(old_config).exists() {
+            match fs::remove_file(old_config) {
+                Ok(_) => println!("Removed old config: {}", old_config),
+                Err(e) => println!("Note: Could not remove old config {}: {}", old_config, e),
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Creates a WirePlumber configuration file (updated format for versions >= 0.5)
+fn create_wireplumber_config_new(settings: &AudioSettings) -> Result<(), String> {
+    let _username = whoami::username();
+    let config_dirs = [
+        "/etc/wireplumber/wireplumber.conf.d",
+        &format!("~/.config/wireplumber/wireplumber.conf.d")
+    ];
+    
+    for dir in &config_dirs {
+        let expanded_dir = shellexpand::full(dir).map_err(|e| e.to_string())?;
+        if Path::new(&*expanded_dir).exists() {
+            let config_path = format!("{}/99-pro-audio.conf", expanded_dir);
+            
+            let content = format!(
+                r#"{{
+  "monitor.alsa.rules": [
+    {{
+      "matches": [
+        {{
+          "node.name": "~alsa.*"
+        }}
+      ],
+      "actions": {{
+        "update-props": {{
+          "audio.rate": {},
+          "audio.allowed-rates": [ {} ],
+          "api.alsa.period-size": {}
+        }}
+      }}
+    }}
+  ]
+}}"#,
+                settings.sample_rate,
+                settings.sample_rate, // Single allowed rate for simplicity
+                settings.buffer_size
+            );
+            
+            fs::write(&config_path, content)
+                .map_err(|e| format!("Failed to write {}: {}", config_path, e))?;
+            
+            println!("Created WirePlumber config: {}", config_path);
+            return Ok(());
+        }
+    }
+    
+    Err("No WirePlumber config directory found".to_string())
+}
+
+/// Modifies the main PipeWire configuration file as a fallback
+fn modify_main_pipewire_config(settings: &AudioSettings) -> Result<(), String> {
+    let _username = whoami::username();
+    let config_paths = [
+        "/etc/pipewire/pipewire.conf",
+        &format!("~/.config/pipewire/pipewire.conf")
+    ];
+    
+    for path in &config_paths {
+        let expanded_path = shellexpand::full(path).map_err(|e| e.to_string())?;
+        if Path::new(&*expanded_path).exists() {
+            let content = fs::read_to_string(&*expanded_path)
+                .map_err(|e| format!("Failed to read {}: {}", expanded_path, e))?;
+            
+            // Try multiple possible patterns for clock rate and quantum
+            let patterns = [
+                ("#default.clock.rate          = 48000", format!("default.clock.rate          = {}", settings.sample_rate)),
+                ("#default.clock.rate          = 192000", format!("default.clock.rate          = {}", settings.sample_rate)),
+                ("default.clock.rate          = 48000", format!("default.clock.rate          = {}", settings.sample_rate)),
+                ("#default.clock.quantum       = 1024", format!("default.clock.quantum       = {}", settings.buffer_size)),
+                ("#default.clock.quantum       = 8192", format!("default.clock.quantum       = {}", settings.buffer_size)),
+                ("default.clock.quantum       = 1024", format!("default.clock.quantum       = {}", settings.buffer_size)),
+                // Also update the allowed rates
+                ("default.clock.allowed-rates = \\[ 44100, 48000, 96000, 192000 \\]", format!("default.clock.allowed-rates = [ {} ]", settings.sample_rate)),
+            ];
+            
+            let mut updated_content = content.clone();
+            for (pattern, replacement) in &patterns {
+                updated_content = updated_content.replace(pattern, replacement);
+            }
+            
+            // Only write if changes were made
+            if updated_content != content {
+                // Backup original
+                let backup_path = format!("{}.backup", expanded_path);
+                fs::copy(&*expanded_path, &backup_path)
+                    .map_err(|e| format!("Failed to backup {}: {}", expanded_path, e))?;
+                
+                fs::write(&*expanded_path, updated_content)
+                    .map_err(|e| format!("Failed to write {}: {}", expanded_path, e))?;
+                
+                println!("Modified main config: {} (backup: {})", expanded_path, backup_path);
             } else {
-                format!("alsa_output.{}", alsa_name)
-            })
-        }
-        id if id.starts_with("pipewire:") => {
-            let node_id = id.trim_start_matches("pipewire:");
-            resolve_pipewire_device_name(node_id)
-                .map_err(|e| format!("Failed to resolve pipewire device: {}", e))
-        }
-        id if id.starts_with("pulse:") => {
-            let pulse_id = id.trim_start_matches("pulse:");
-            resolve_pulse_device_name(pulse_id)
-                .map_err(|e| format!("Failed to resolve pulse device: {}", e))
-        }
-        _ => {
-            validate_device_pattern(device_id)?;
-            Ok(device_id.to_string())
+                println!("No changes needed for: {}", expanded_path);
+            }
+            
+            return Ok(());
         }
     }
+    
+    Err("No main PipeWire config file found".to_string())
 }
 
-// Separate device pattern extraction for input devices
-pub fn extract_input_device_pattern(device_id: &str) -> Result<String, String> {
-    match device_id {
-        "default" => detect_current_default_input_device_name()
-            .map_err(|e| format!("Failed to detect default input device: {}", e)),
-        id if id.starts_with("alsa:") => {
-            let alsa_name = id.trim_start_matches("alsa:");
-            Ok(if alsa_name.contains(".") {
-                alsa_name.to_string()
-            } else {
-                format!("alsa_input.{}", alsa_name) // Note: alsa_input instead of alsa_output
-            })
-        }
-        id if id.starts_with("pipewire:") => {
-            let node_id = id.trim_start_matches("pipewire:");
-            resolve_pipewire_device_name(node_id)
-                .map_err(|e| format!("Failed to resolve pipewire device: {}", e))
-        }
-        id if id.starts_with("pulse:") => {
-            let pulse_id = id.trim_start_matches("pulse:");
-            resolve_pulse_device_name(pulse_id)
-                .map_err(|e| format!("Failed to resolve pulse device: {}", e))
-        }
-        _ => {
-            validate_device_pattern(device_id)?;
-            Ok(device_id.to_string())
-        }
+/// Verifies that the settings were actually applied
+fn verify_settings_applied(settings: &AudioSettings) -> Result<(), String> {
+    println!("Verifying settings were applied...");
+    
+    // Wait a bit for services to fully initialize
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    
+    // Get current settings
+    let current_settings = crate::audio::detect_current_audio_settings()
+        .map_err(|e| format!("Failed to detect current settings for verification: {}", e))?;
+    
+    println!("Current settings: {}Hz/{}bit/{} samples", 
+             current_settings.sample_rate, current_settings.bit_depth, current_settings.buffer_size);
+    println!("Expected settings: {}Hz/{}bit/{} samples", 
+             settings.sample_rate, settings.bit_depth, settings.buffer_size);
+    
+    // Check if settings match (with some tolerance for buffer size)
+    if current_settings.sample_rate != settings.sample_rate {
+        return Err(format!("Sample rate not applied: expected {}Hz, got {}Hz", 
+                          settings.sample_rate, current_settings.sample_rate));
     }
+    
+    // Buffer size might be adjusted by PipeWire, so we allow some difference
+    let buffer_diff = (current_settings.buffer_size as i32 - settings.buffer_size as i32).abs();
+    if buffer_diff > 256 { // Allow 256 samples difference
+        return Err(format!("Buffer size significantly different: expected {}, got {}", 
+                          settings.buffer_size, current_settings.buffer_size));
+    }
+    
+    println!("✓ Settings verified successfully");
+    Ok(())
 }
 
-fn detect_current_default_device_name() -> Result<String, String> {
-    // In test environment, return a mock value
-    if std::env::var("TEST_ENV").is_ok() || cfg!(test) {
-        return Ok("alsa_output.mock_device".to_string());
+pub fn debug_wireplumber_config() -> Result<(), String> {
+    println!("=== WirePlumber Debug Information ===");
+    
+    // Check if WirePlumber is running
+    let status = Command::new("systemctl")
+        .args(["--user", "is-active", "wireplumber"])
+        .status()
+        .map_err(|e| format!("Failed to check WirePlumber status: {}", e))?;
+    
+    if !status.success() {
+        return Err("WirePlumber is not running".to_string());
     }
     
-    let output = Command::new("pactl")
-        .args(["info"])
-        .output()
-        .map_err(|e| format!("Failed to get default device: {}", e))?;
-        
-    if !output.status.success() {
-        return Err("Failed to query default device".to_string());
+    // Get and display WirePlumber version
+    match get_wireplumber_version() {
+        Ok(version) => println!("WirePlumber version: {}", version),
+        Err(e) => println!("Could not determine WirePlumber version: {}", e),
     }
     
-    let output_str = String::from_utf8_lossy(&output.stdout);
+    // List config files WirePlumber is using
+    let _ = Command::new("wpctl")
+        .args(["status"])
+        .status();
     
-    for line in output_str.lines() {
-        if line.starts_with("Default Sink:") {
-            let sink_name = line.replace("Default Sink:", "").trim().to_string();
-            if !sink_name.is_empty() {
-                return if sink_name.starts_with("alsa_output.") {
-                    Ok(sink_name)
-                } else {
-                    Ok(format!("alsa_output.{}", sink_name.replace('.', "_")))
-                };
+    // Check config directory structure
+    let username = whoami::username();
+    let config_dirs = [
+        format!("/home/{}/.config/wireplumber", username),
+        "/etc/wireplumber".to_string(),
+    ];
+    
+    for dir in &config_dirs {
+        println!("Checking directory: {}", dir);
+        if Path::new(dir).exists() {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    println!("  Found: {}", entry.path().display());
+                }
             }
         }
     }
     
-    Err("No default sink found".to_string())
+    Ok(())
 }
 
-fn detect_current_default_input_device_name() -> Result<String, String> {
-    // In test environment, return a mock value
-    if std::env::var("TEST_ENV").is_ok() || cfg!(test) {
-        return Ok("alsa_input.mock_input".to_string());
-    }
+/// Unified function to restart audio services with legacy or new approach
+fn restart_audio_services(use_legacy: bool) -> Result<(), String> {
+    println!("Restarting audio services...");
     
-    let output = Command::new("pactl")
-        .args(["info"])
-        .output()
-        .map_err(|e| format!("Failed to get default input device: {}", e))?;
+    if use_legacy {
+        // Legacy approach: Restart services individually with pauses
+        let services = ["pipewire", "pipewire-pulse", "wireplumber"];
         
-    if !output.status.success() {
-        return Err("Failed to query default input device".to_string());
-    }
-    
-    let output_str = String::from_utf8_lossy(&output.stdout);
-    
-    for line in output_str.lines() {
-        if line.starts_with("Default Source:") {
-            let source_name = line.replace("Default Source:", "").trim().to_string();
-            if !source_name.is_empty() {
-                return if source_name.starts_with("alsa_input.") {
-                    Ok(source_name)
-                } else {
-                    Ok(format!("alsa_input.{}", source_name.replace('.', "_")))
-                };
+        for service in &services {
+            let status = Command::new("systemctl")
+                .args(["--user", "restart", service])
+                .status()
+                .map_err(|e| format!("Failed to restart {}: {}", service, e))?;
+            
+            if !status.success() {
+                return Err(format!("Failed to restart {}", service));
             }
+            
+            // Brief pause between service restarts
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
-    }
-    
-    Err("No default source found".to_string())
-}
-
-// Application Functions
-pub fn apply_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
-    apply_output_audio_settings_with_auth_blocking(settings)
-}
-
-pub fn apply_output_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
-    println!("DEBUG: Selected output device_id: {}", settings.device_id);
-    settings.validate()?;
-
-    let script_generator = ScriptGenerator::new(settings.clone())?;
-    let script_content = script_generator.generate_global_audio_script()?;
-    
-    let script_path = std::env::temp_dir().join("apply_output_audio_settings.sh");
-    std::fs::write(&script_path, &script_content)
-        .map_err(|e| format!("Failed to create settings script: {}", e))?;
-
-    std::fs::set_permissions(&script_path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .map_err(|e| format!("Failed to set script permissions: {}", e))?;
-
-    println!("Executing script with pkexec...");
-
-    let output = Command::new("pkexec")
-        .arg("--disable-internal-agent")
-        .arg("bash")
-        .arg(&script_path)
-        .output()
-        .map_err(|e| format!("Failed to execute settings script: {}", e))?;
-
-    let _ = std::fs::remove_file(&script_path);
-
-    if output.status.success() {
-        println!("Script executed successfully!");
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.is_empty() {
-            println!("Script output:\n{}", stdout);
-        }
-        Ok(())
+        
+        // Wait for services to fully initialize
+        println!("Waiting for services to initialize...");
+        std::thread::sleep(std::time::Duration::from_secs(2));
     } else {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        
-        println!("Script failed with exit code: {}", output.status);
-        println!("Script stdout:\n{}", stdout);
-        println!("Script stderr:\n{}", stderr);
-        
-        let mut error_msg = format!("Script failed with exit code: {}", output.status.code().unwrap_or(-1));
-        
-        if !stderr.is_empty() {
-            error_msg.push_str(&format!("\n\nError output:\n{}", stderr));
-        }
-        
-        if !stdout.is_empty() {
-            let lines: Vec<&str> = stdout.lines().collect();
-            let last_lines: Vec<&str> = lines.iter().rev().take(5).rev().copied().collect();
-            if !last_lines.is_empty() {
-                error_msg.push_str(&format!("\n\nLast output:\n{}", last_lines.join("\n")));
+        // New approach: Use systemd if available, otherwise direct commands
+        if Path::new("/run/systemd/seats").exists() {
+            println!("Using systemd to restart services...");
+            let status = Command::new("systemctl")
+                .args(["--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"])
+                .status()
+                .map_err(|e| format!("Failed to restart services: {}", e))?;
+            
+            if !status.success() {
+                return Err("Failed to restart audio services via systemd".to_string());
             }
+        } else {
+            // Fallback: kill and let them restart automatically
+            println!("Systemd not available, using fallback restart method...");
+            Command::new("pkill")
+                .args(["-f", "pipewire"])
+                .status()
+                .ok(); // Ignore errors here
+            
+            Command::new("pkill") 
+                .args(["-f", "wireplumber"])
+                .status()
+                .ok();
+            
+            // Wait a moment for services to restart
+            std::thread::sleep(std::time::Duration::from_secs(2));
         }
         
-        Err(error_msg)
+        // Additional wait for PipeWire to fully initialize
+        println!("Waiting for PipeWire to initialize...");
+        std::thread::sleep(std::time::Duration::from_secs(3));
     }
-}
-
-pub fn apply_input_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
-    println!("DEBUG: Selected input device_id: {}", settings.device_id);
-    settings.validate()?;
-
-    let script_generator = InputScriptGenerator::new(settings.clone())?;
-    let script_content = script_generator.generate_global_audio_script()?;
     
-    let script_path = std::env::temp_dir().join("apply_input_audio_settings.sh");
-    std::fs::write(&script_path, &script_content)
-        .map_err(|e| format!("Failed to create settings script: {}", e))?;
-
-    std::fs::set_permissions(&script_path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .map_err(|e| format!("Failed to set script permissions: {}", e))?;
-
-    println!("Executing script with pkexec...");
-
-    let output = Command::new("pkexec")
-        .arg("--disable-internal-agent")
-        .arg("bash")
-        .arg(&script_path)
-        .output()
-        .map_err(|e| format!("Failed to execute settings script: {}", e))?;
-
-    let _ = std::fs::remove_file(&script_path);
-
-    if output.status.success() {
-        println!("Script executed successfully!");
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.is_empty() {
-            println!("Script output:\n{}", stdout);
-        }
-        Ok(())
-    } else {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        
-        println!("Script failed with exit code: {}", output.status);
-        println!("Script stdout:\n{}", stdout);
-        println!("Script stderr:\n{}", stderr);
-        
-        let mut error_msg = format!("Script failed with exit code: {}", output.status.code().unwrap_or(-1));
-        
-        if !stderr.is_empty() {
-            error_msg.push_str(&format!("\n\nError output:\n{}", stderr));
-        }
-        
-        if !stdout.is_empty() {
-            let lines: Vec<&str> = stdout.lines().collect();
-            let last_lines: Vec<&str> = lines.iter().rev().take(5).rev().copied().collect();
-            if !last_lines.is_empty() {
-                error_msg.push_str(&format!("\n\nLast output:\n{}", last_lines.join("\n")));
-            }
-        }
-        
-        Err(error_msg)
-    }
+    Ok(())
 }
 
-#[cfg(test)]
-fn create_mock_service_config() -> Result<ServiceConfig, String> {
-    // Create a mock service config for testing
-    Ok(ServiceConfig {
-        username: "testuser".to_string(),
-        user_id: 1000,
-        runtime_dir: "/run/user/1000".to_string(),
-        dbus_address: "unix:path=/run/user/1000/bus".to_string(),
-    })
+/// Removes any configuration files created by this application
+pub fn cleanup_config_files() -> Result<(), String> {
+    let username = whoami::username();
+    let files_to_remove = [
+        "/etc/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf",
+        "/etc/pipewire/pipewire.conf.d/99-pro-audio.conf",
+        &format!("~/.config/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf"),
+        &format!("~/.config/pipewire/pipewire.conf.d/99-pro-audio.conf"),
+        &format!("~/.local/share/pipewire/pipewire.conf.d/99-pro-audio.conf"),
+        "/etc/wireplumber/wireplumber.conf.d/99-pro-audio.conf", 
+        "/etc/wireplumber/wireplumber.conf.d/50-pro-audio.conf", 
+        &format!("~/.config/wireplumber/wireplumber.conf.d/99-pro-audio.conf"),
+        &format!("~/.config/wireplumber/wireplumber.conf.d/50-pro-audio.conf"),
+        &format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-output.lua", username),
+        &format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-input.lua", username),
+    ];
+    
+    let mut removed_count = 0;
+    for file in &files_to_remove {
+        let expanded_path = shellexpand::full(file).map_err(|e| e.to_string())?;
+        if Path::new(&*expanded_path).exists() {
+            match fs::remove_file(&*expanded_path) {
+                Ok(_) => {
+                    println!("Removed config file: {}", expanded_path);
+                    removed_count += 1;
+                }
+                Err(e) => {
+                    println!("Warning: Failed to remove {}: {}", expanded_path, e);
+                }
+            }
+        }
+    }
+    
+    if removed_count > 0 {
+        restart_audio_services(false)?;
+        println!("Removed {} configuration files and restarted services", removed_count);
+    }
+    
+    Ok(())
+}
+
+/// Checks if audio services are running
+pub fn check_audio_services() -> Result<(), String> {
+    let services = ["pipewire", "pipewire-pulse", "wireplumber"];
+    let mut missing_services = Vec::new();
+    
+    for service in &services {
+        let output = Command::new("pgrep")
+            .arg("-f")
+            .arg(service)
+            .output()
+            .map_err(|e| format!("Failed to check service {}: {}", service, e))?;
+        
+        if !output.status.success() {
+            missing_services.push(service.to_string());
+        }
+    }
+    
+    if !missing_services.is_empty() {
+        Err(format!("Missing audio services: {}", missing_services.join(", ")))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::AudioSettings;
-
+    
     #[test]
-    fn test_device_pattern_validation() {
-        assert!(validate_device_pattern("alsa.*").is_ok());
-        assert!(validate_device_pattern("").is_err());
-        assert!(validate_device_pattern(&"a".repeat(300)).is_err());
-        assert!(validate_device_pattern("alsa../dangerous").is_err());
+    fn test_audio_settings_struct() {
+        let settings = AudioSettings {
+            sample_rate: 96000,
+            bit_depth: 24,
+            buffer_size: 512,
+            device_id: "test-device".to_string(),
+        };
+        
+        assert_eq!(settings.sample_rate, 96000);
+        assert_eq!(settings.bit_depth, 24);
+        assert_eq!(settings.buffer_size, 512);
     }
-
+    
     #[test]
-    fn test_service_config_creation() {
-        let config = ServiceConfig::for_current_user();
-        // This might fail in test environment, but we can test the structure
-        if let Ok(config) = config {
-            assert!(config.validate().is_ok());
-        }
+    fn test_wireplumber_config_generation() {
+        let settings = AudioSettings {
+            sample_rate: 192000,
+            bit_depth: 32,
+            buffer_size: 256,
+            device_id: "test-device".to_string(),
+        };
+        
+        let config = generate_wireplumber_config(&settings, "output");
+        
+        assert!(config.contains("192000"));
+        assert!(config.contains("256"));
+        assert!(config.contains("S32LE"));
+        assert!(config.contains("test-device"));
     }
-
+    
     #[test]
-    fn test_script_generator_validation() {
-        let settings = AudioSettings::new(48000, 24, 512, "default".to_string());
-        let generator = ScriptGenerator::new(settings);
-        assert!(generator.is_ok());
+    fn test_legacy_wireplumber_config_generation() {
+        let settings = AudioSettings {
+            sample_rate: 48000,
+            bit_depth: 16,
+            buffer_size: 1024,
+            device_id: "default".to_string(),
+        };
+        
+        let config = generate_legacy_wireplumber_config(&settings, "input");
+        
+        assert!(config.contains("48000"));
+        assert!(config.contains("1024")); 
+        assert!(config.contains("alsa.*"));
+        assert!(config.contains("S16LE"));
+        assert!(config.contains("Lua"));
     }
-
+    
     #[test]
-    fn test_device_pattern_extraction() {
-        // Test default case - may fail in test environment but should handle gracefully
-        let result = extract_device_pattern("default");
-        assert!(result.is_ok() || result.is_err()); // Should not panic
+    fn test_default_device_config() {
+        let settings = AudioSettings {
+            sample_rate: 48000,
+            bit_depth: 16,
+            buffer_size: 1024,
+            device_id: "default".to_string(),
+        };
         
-        // Test ALSA device
-        let alsa_result = extract_device_pattern("alsa:mydevice");
-        assert!(alsa_result.is_ok());
-        assert!(alsa_result.unwrap().contains("alsa_output.mydevice"));
+        let config = generate_wireplumber_config(&settings, "input");
         
-        // Test invalid pattern
-        let invalid_result = extract_device_pattern("");
-        assert!(invalid_result.is_err());
-    }
-
-    // NEW TESTS FOR V1.5 FEATURES
-    #[test]
-    fn test_input_device_pattern_extraction() {
-        // Test input-specific pattern extraction
-        let alsa_input_result = extract_input_device_pattern("alsa:mydevice");
-        assert!(alsa_input_result.is_ok());
-        assert!(alsa_input_result.unwrap().contains("alsa_input.mydevice"));
-        
-        let default_input_result = extract_input_device_pattern("default");
-        assert!(default_input_result.is_ok() || default_input_result.is_err());
-    }
-
-    #[test]
-    fn test_output_script_generator() {
-        // Use a specific device ID that doesn't require system detection
-        let settings = AudioSettings::new(48000, 24, 512, "alsa:test_device".to_string());
-        let generator = ScriptGenerator::new(settings);
-        
-        // The generator should succeed with a specific device ID
-        if let Ok(generator) = generator {
-            let script_result = generator.generate_script();
-            assert!(script_result.is_ok(), "Script generation should succeed with specific device ID");
-            
-            if let Ok(script) = script_result {
-                // Verify script contains basic content
-                assert!(script.contains("Audio Configuration"));
-                assert!(script.contains("48000"));
-                assert!(script.contains("24"));
-                assert!(script.contains("512"));
-                assert!(script.contains("alsa:test_device"));
-            }
-        } else {
-            // If generator fails, it might be because of system detection issues
-            // This is acceptable in test environment
-            println!("ScriptGenerator creation failed (may be expected in test environment)");
-        }
-    }
-
-    #[test]
-    fn test_input_script_generator() {
-        // Use a specific device ID that doesn't require system detection
-        let settings = AudioSettings::new(48000, 24, 512, "alsa:test_input_device".to_string());
-        let generator = InputScriptGenerator::new(settings);
-        
-        if let Ok(generator) = generator {
-            let script_result = generator.generate_script();
-            assert!(script_result.is_ok(), "Input script generation should succeed with specific device ID");
-            
-            if let Ok(script) = script_result {
-                // Verify script contains basic content
-                assert!(script.contains("Input Audio Configuration"));
-                assert!(script.contains("48000"));
-                assert!(script.contains("24"));
-                assert!(script.contains("512"));
-                assert!(script.contains("alsa:test_input_device"));
-            }
-        } else {
-            // If generator fails, it might be because of system detection issues
-            println!("InputScriptGenerator creation failed (may be expected in test environment)");
-        }
-    }
-
-    #[test]
-    fn test_script_generator_with_mock_device() {
-        // Test with a mock device pattern that doesn't require system detection
-        let settings = AudioSettings::new(96000, 32, 1024, "alsa:mock_device.*".to_string());
-        
-        // This should always work since we're using a pattern, not "default"
-        let generator = ScriptGenerator::new(settings);
-        assert!(generator.is_ok(), "Should work with device pattern");
-        
-        if let Ok(generator) = generator {
-            let script = generator.generate_script();
-            assert!(script.is_ok(), "Should generate script with device pattern");
-        }
-    }
-
-    #[test]
-    fn test_input_script_generator_with_mock_device() {
-        // Test with a mock input device pattern
-        let settings = AudioSettings::new(96000, 32, 1024, "alsa:mock_input.*".to_string());
-        
-        let generator = InputScriptGenerator::new(settings);
-        assert!(generator.is_ok(), "Should work with input device pattern");
-        
-        if let Ok(generator) = generator {
-            let script = generator.generate_script();
-            assert!(script.is_ok(), "Should generate input script with device pattern");
-        }
-    }
-
-    #[test]
-    fn test_apply_functions_exist() {
-        // Test that the new apply functions are available and have correct signatures
-        // Use mock device to avoid system detection issues
-        
-        let settings = AudioSettings::new(48000, 24, 512, "alsa:test_device".to_string());
-        
-        // Test 1: Verify functions exist and can be called
-        let output_result = std::panic::catch_unwind(|| {
-            let _ = apply_output_audio_settings_with_auth_blocking(settings.clone());
-        });
-        
-        let input_result = std::panic::catch_unwind(|| {
-            let _ = apply_input_audio_settings_with_auth_blocking(settings);
-        });
-        
-        // Both should not panic when called
-        assert!(output_result.is_ok(), "apply_output_audio_settings_with_auth_blocking should not panic");
-        assert!(input_result.is_ok(), "apply_input_audio_settings_with_auth_blocking should not panic");
-    }
-
-    // Add tests for device pattern extraction
-    #[test]
-    fn test_extract_device_pattern_with_mock() {
-        // Test device pattern extraction with mock patterns
-        let cases = vec![
-            ("alsa:test_device", "alsa_output.test_device"),
-            ("pipewire:123", "pipewire_device"), // Will fail but that's OK
-            ("pulse:1", "pulse_device"), // Will fail but that's OK
-        ];
-        
-        for (device_id, _expected_pattern) in cases {
-            let result = extract_device_pattern(device_id);
-            // We don't assert the exact result since system detection may fail in tests
-            // Just verify it returns a Result without panicking
-            assert!(result.is_ok() || result.is_err());
-        }
-    }
-
-    #[test]
-    fn test_extract_input_device_pattern_with_mock() {
-        // Test input device pattern extraction with mock patterns
-        let cases = vec![
-            ("alsa:test_input", "alsa_input.test_input"),
-        ];
-        
-        for (device_id, _expected_pattern) in cases {
-            let result = extract_input_device_pattern(device_id);
-            // Just verify it returns a Result without panicking
-            assert!(result.is_ok() || result.is_err());
-        }
-    }
-
-    // Test the core validation logic without system dependencies
-    #[test]
-    fn test_service_config_validation_logic() {
-        // Test the validation logic without creating actual ServiceConfig
-        let username = "testuser".to_string();
-        let user_id = 1000;
-        let runtime_dir = "/run/user/1000".to_string();
-        let dbus_address = "unix:path=/run/user/1000/bus".to_string();
-        
-        // Test individual validation rules
-        assert!(!username.is_empty());
-        assert!(user_id != 0);
-        assert!(runtime_dir.starts_with("/run/user/"));
-        assert!(dbus_address.starts_with("unix:path="));
-    }
-
-    #[test]
-    fn test_script_generation_validation() {
-        // Test that script generation validates settings properly
-        let invalid_settings = AudioSettings::new(12345, 8, 999, "".to_string());
-        
-        // Script generation should fail with invalid settings
-        let generator = ScriptGenerator::new(invalid_settings.clone());
-        assert!(generator.is_err(), "Should reject invalid settings");
-        
-        let input_generator = InputScriptGenerator::new(invalid_settings);
-        assert!(input_generator.is_err(), "Should reject invalid input settings");
-    }
-
-    // Add a test that mocks the actual system calls for safer testing
-    #[test]
-    fn test_apply_functions_validation() {
-        // Test validation without actually running system commands
-        let valid_settings = AudioSettings::new(48000, 24, 512, "default".to_string());
-        let invalid_settings = AudioSettings::new(12345, 8, 999, "".to_string());
-        
-        // Test validation logic
-        assert!(valid_settings.validate().is_ok());
-        assert!(invalid_settings.validate().is_err());
-        
-        // Test script generation (this doesn't run system commands)
-        let script_gen = ScriptGenerator::new(valid_settings.clone());
-        assert!(script_gen.is_ok());
-        
-        let input_script_gen = InputScriptGenerator::new(valid_settings);
-        assert!(input_script_gen.is_ok());
-    }
-
-    // Test global configuration generation
-    #[test]
-    fn test_global_config_generation() {
-        let settings = AudioSettings::new(48000, 24, 8192, "alsa:test_device".to_string());
-        let generator = ScriptGenerator::new(settings).unwrap();
-        
-        let system_config = generator.generate_system_pipewire_config();
-        
-        // Verify system config contains expected settings
-        assert!(system_config.contains("default.clock.rate = 48000"));
-        assert!(system_config.contains("default.clock.quantum = 8192"));
-        assert!(system_config.contains("node.latency = 8192/48000"));
-    }
-
-    #[test]
-    fn test_global_script_generation() {
-        let settings = AudioSettings::new(96000, 32, 2048, "alsa:test_device".to_string());
-        let generator = ScriptGenerator::new(settings).unwrap();
-        
-        let script_result = generator.generate_global_audio_script();
-        assert!(script_result.is_ok());
-        
-        if let Ok(script) = script_result {
-            // Verify global script contains system-wide configuration
-            assert!(script.contains("/etc/pipewire/pipewire.conf.d/99-pro-audio.conf"));
-            assert!(script.contains("Global Audio Configuration"));
-            assert!(script.contains("96000"));
-            assert!(script.contains("2048"));
-        }
+        assert!(config.contains("48000"));
+        assert!(config.contains("1024")); 
+        assert!(config.contains("~alsa.*"));
+        assert!(config.contains("S16LE"));
     }
 }
