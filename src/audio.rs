@@ -51,15 +51,24 @@ impl AudioSettings {
         const VALID_BUFFER_SIZES: [u32; 7] = [128, 256, 512, 1024, 2048, 4096, 8192];
 
         if !VALID_SAMPLE_RATES.contains(&self.sample_rate) {
-            return Err(format!("Invalid sample rate: {}. Valid rates: {:?}", self.sample_rate, VALID_SAMPLE_RATES));
+            return Err(format!(
+                "Invalid sample rate: {}. Valid rates: {:?}",
+                self.sample_rate, VALID_SAMPLE_RATES
+            ));
         }
 
         if !VALID_BIT_DEPTHS.contains(&self.bit_depth) {
-            return Err(format!("Invalid bit depth: {}. Valid depths: {:?}", self.bit_depth, VALID_BIT_DEPTHS));
+            return Err(format!(
+                "Invalid bit depth: {}. Valid depths: {:?}",
+                self.bit_depth, VALID_BIT_DEPTHS
+            ));
         }
 
         if !VALID_BUFFER_SIZES.contains(&self.buffer_size) {
-            return Err(format!("Invalid buffer size: {}. Valid sizes: {:?}", self.buffer_size, VALID_BUFFER_SIZES));
+            return Err(format!(
+                "Invalid buffer size: {}. Valid sizes: {:?}",
+                self.buffer_size, VALID_BUFFER_SIZES
+            ));
         }
 
         if self.device_id.is_empty() {
@@ -67,7 +76,10 @@ impl AudioSettings {
         }
 
         if !is_valid_device_id(&self.device_id) {
-            return Err(format!("Invalid device ID format: {}. Expected: 'default', 'alsa:...', 'pipewire:...', 'pulse:...'", self.device_id));
+            return Err(format!(
+                "Invalid device ID format: {}. Expected: 'default', 'alsa:...', 'pipewire:...', 'pulse:...'",
+                self.device_id
+            ));
         }
 
         Ok(())
@@ -90,10 +102,11 @@ fn is_valid_device_id(device_id: &str) -> bool {
     }
 
     // Check for specific valid patterns
-    if device_id == "default" ||
-       device_id.starts_with("alsa:") ||
-       device_id.starts_with("pipewire:") ||
-       device_id.starts_with("pulse:") {
+    if device_id == "default"
+        || device_id.starts_with("alsa:")
+        || device_id.starts_with("pipewire:")
+        || device_id.starts_with("pulse:")
+    {
         return true;
     }
 
@@ -107,7 +120,10 @@ pub fn detect_all_audio_devices() -> Result<Vec<AudioDevice>, String> {
 
     println!("=== Scanning for all audio devices ===");
 
-    if let Ok(output) = Command::new("pw-cli").args(["list-objects", "Node"]).output() {
+    if let Ok(output) = Command::new("pw-cli")
+        .args(["list-objects", "Node"])
+        .output()
+    {
         devices.extend(parse_pipewire_devices(&output.stdout)?);
     }
 
@@ -124,7 +140,10 @@ pub fn detect_output_audio_devices() -> Result<Vec<AudioDevice>, String> {
 
     println!("=== Scanning for output audio devices ===");
 
-    if let Ok(output) = Command::new("pw-cli").args(["list-objects", "Node"]).output() {
+    if let Ok(output) = Command::new("pw-cli")
+        .args(["list-objects", "Node"])
+        .output()
+    {
         devices.extend(parse_pipewire_devices(&output.stdout)?);
     }
 
@@ -132,7 +151,8 @@ pub fn detect_output_audio_devices() -> Result<Vec<AudioDevice>, String> {
     devices.extend(detect_pulse_output_devices()?);
 
     // Filter for output devices only
-    let output_devices: Vec<AudioDevice> = devices.into_iter()
+    let output_devices: Vec<AudioDevice> = devices
+        .into_iter()
         .filter(|device| matches!(device.device_type, DeviceType::Output | DeviceType::Duplex))
         .collect();
 
@@ -145,7 +165,10 @@ pub fn detect_input_audio_devices() -> Result<Vec<AudioDevice>, String> {
 
     println!("=== Scanning for input audio devices ===");
 
-    if let Ok(output) = Command::new("pw-cli").args(["list-objects", "Node"]).output() {
+    if let Ok(output) = Command::new("pw-cli")
+        .args(["list-objects", "Node"])
+        .output()
+    {
         devices.extend(parse_pipewire_devices(&output.stdout)?);
     }
 
@@ -153,7 +176,8 @@ pub fn detect_input_audio_devices() -> Result<Vec<AudioDevice>, String> {
     devices.extend(detect_pulse_input_devices()?);
 
     // Filter for input devices only
-    let input_devices: Vec<AudioDevice> = devices.into_iter()
+    let input_devices: Vec<AudioDevice> = devices
+        .into_iter()
         .filter(|device| matches!(device.device_type, DeviceType::Input | DeviceType::Duplex))
         .collect();
 
@@ -166,7 +190,14 @@ fn is_real_hardware_device(device: &AudioDevice) -> bool {
     let description = device.description.to_lowercase();
 
     // Skip virtual devices and internal nodes
-    let virtual_indicators = ["virtual", "null", "dummy", "echo-cancel", "monitor", "proaudio"];
+    let virtual_indicators = [
+        "virtual",
+        "null",
+        "dummy",
+        "echo-cancel",
+        "monitor",
+        "proaudio",
+    ];
     for indicator in virtual_indicators {
         if name.contains(indicator) || description.contains(indicator) {
             return false;
@@ -176,18 +207,36 @@ fn is_real_hardware_device(device: &AudioDevice) -> bool {
     // Device-type specific filtering
     match device.id.split(':').next() {
         Some("pipewire") => {
-            if description.contains("internal") &&
-               !description.contains("usb") &&
-               !description.contains("hdmi") &&
-               !description.contains("analog") {
+            if description.contains("internal")
+                && !description.contains("usb")
+                && !description.contains("hdmi")
+                && !description.contains("analog")
+            {
                 return false;
             }
         }
         Some("alsa") => {
-            let alsa_virtual = ["default", "dmix", "dsnoop", "hw", "plughw", "lavrate",
-                               "samplerate", "speexrate", "variable", "rate_convert",
-                               "linear", "mu-law", "a-law", "float", "oss", "pulse",
-                               "upmix", "vdownmix", "usbstream"];
+            let alsa_virtual = [
+                "default",
+                "dmix",
+                "dsnoop",
+                "hw",
+                "plughw",
+                "lavrate",
+                "samplerate",
+                "speexrate",
+                "variable",
+                "rate_convert",
+                "linear",
+                "mu-law",
+                "a-law",
+                "float",
+                "oss",
+                "pulse",
+                "upmix",
+                "vdownmix",
+                "usbstream",
+            ];
             if alsa_virtual.iter().any(|&v| name.contains(v)) {
                 return false;
             }
@@ -263,9 +312,15 @@ fn classify_device_type(class: &str, device: &AudioDevice) -> DeviceType {
         s if s.contains("Audio") => {
             let name_lower = device.name.to_lowercase();
             let desc_lower = device.description.to_lowercase();
-            if name_lower.contains("input") || desc_lower.contains("input") || desc_lower.contains("capture") {
+            if name_lower.contains("input")
+                || desc_lower.contains("input")
+                || desc_lower.contains("capture")
+            {
                 DeviceType::Input
-            } else if name_lower.contains("output") || desc_lower.contains("output") || desc_lower.contains("playback") {
+            } else if name_lower.contains("output")
+                || desc_lower.contains("output")
+                || desc_lower.contains("playback")
+            {
                 DeviceType::Output
             } else {
                 DeviceType::Unknown
@@ -315,16 +370,20 @@ fn detect_alsa_input_devices() -> Result<Vec<AudioDevice>, String> {
 }
 
 fn parse_alsa_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice> {
-    output.lines()
+    output
+        .lines()
         .filter(|line| !line.starts_with(' ') && !line.is_empty() && *line != "default")
         .filter_map(|line| {
             let device = AudioDevice {
                 name: line.to_string(),
-                description: format!("ALSA {}", match device_type {
-                    DeviceType::Input => "Input",
-                    DeviceType::Output => "Output",
-                    _ => "Device",
-                }),
+                description: format!(
+                    "ALSA {}",
+                    match device_type {
+                        DeviceType::Input => "Input",
+                        DeviceType::Output => "Output",
+                        _ => "Device",
+                    }
+                ),
                 id: format!("alsa:{}", line),
                 device_type: device_type.clone(),
                 available: true,
@@ -341,12 +400,18 @@ fn parse_alsa_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice> 
 fn detect_pulse_devices() -> Result<Vec<AudioDevice>, String> {
     let mut devices = Vec::new();
 
-    if let Ok(output) = Command::new("pactl").args(["list", "sinks", "short"]).output() {
+    if let Ok(output) = Command::new("pactl")
+        .args(["list", "sinks", "short"])
+        .output()
+    {
         let output_str = String::from_utf8_lossy(&output.stdout);
         devices.extend(parse_pulse_output(&output_str, DeviceType::Output));
     }
 
-    if let Ok(output) = Command::new("pactl").args(["list", "sources", "short"]).output() {
+    if let Ok(output) = Command::new("pactl")
+        .args(["list", "sources", "short"])
+        .output()
+    {
         let output_str = String::from_utf8_lossy(&output.stdout);
         devices.extend(parse_pulse_output(&output_str, DeviceType::Input));
     }
@@ -358,7 +423,10 @@ fn detect_pulse_devices() -> Result<Vec<AudioDevice>, String> {
 fn detect_pulse_output_devices() -> Result<Vec<AudioDevice>, String> {
     let mut devices = Vec::new();
 
-    if let Ok(output) = Command::new("pactl").args(["list", "sinks", "short"]).output() {
+    if let Ok(output) = Command::new("pactl")
+        .args(["list", "sinks", "short"])
+        .output()
+    {
         let output_str = String::from_utf8_lossy(&output.stdout);
         devices.extend(parse_pulse_output(&output_str, DeviceType::Output));
     }
@@ -369,7 +437,10 @@ fn detect_pulse_output_devices() -> Result<Vec<AudioDevice>, String> {
 fn detect_pulse_input_devices() -> Result<Vec<AudioDevice>, String> {
     let mut devices = Vec::new();
 
-    if let Ok(output) = Command::new("pactl").args(["list", "sources", "short"]).output() {
+    if let Ok(output) = Command::new("pactl")
+        .args(["list", "sources", "short"])
+        .output()
+    {
         let output_str = String::from_utf8_lossy(&output.stdout);
         devices.extend(parse_pulse_output(&output_str, DeviceType::Input));
     }
@@ -378,7 +449,8 @@ fn detect_pulse_input_devices() -> Result<Vec<AudioDevice>, String> {
 }
 
 fn parse_pulse_output(output: &str, device_type: DeviceType) -> Vec<AudioDevice> {
-    output.lines()
+    output
+        .lines()
         .filter_map(|line| {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
@@ -484,8 +556,16 @@ pub fn detect_current_audio_settings() -> Result<AudioSettings, String> {
             }
 
             let (sample_rate, bit_depth, buffer_size) = parse_pipewire_settings(&output_str);
-            println!("DEBUG: Parsed values - {}Hz/{}bit/{}samples", sample_rate, bit_depth, buffer_size);
-            return Ok(AudioSettings::new(sample_rate, bit_depth, buffer_size, "default".to_string()));
+            println!(
+                "DEBUG: Parsed values - {}Hz/{}bit/{}samples",
+                sample_rate, bit_depth, buffer_size
+            );
+            return Ok(AudioSettings::new(
+                sample_rate,
+                bit_depth,
+                buffer_size,
+                "default".to_string(),
+            ));
         } else {
             println!("DEBUG: pw-cli failed with status: {}", output.status);
             let error_output = String::from_utf8_lossy(&output.stderr);
@@ -508,9 +588,17 @@ fn parse_pipewire_settings(output: &str) -> (u32, u32, u32) {
         let trimmed = line.trim();
 
         // Sample rate
-        if trimmed.contains("default.clock.rate") && trimmed.contains('=') && !trimmed.contains("allowed-rates") {
+        if trimmed.contains("default.clock.rate")
+            && trimmed.contains('=')
+            && !trimmed.contains("allowed-rates")
+        {
             if let Some(rate_str) = trimmed.split('=').nth(1) {
-                let rate_clean = rate_str.trim().trim_matches('"').trim().trim_start_matches('*').trim();
+                let rate_clean = rate_str
+                    .trim()
+                    .trim_matches('"')
+                    .trim()
+                    .trim_start_matches('*')
+                    .trim();
                 if let Ok(rate) = rate_clean.parse::<u32>() {
                     sample_rate = rate;
                 }
@@ -520,7 +608,12 @@ fn parse_pipewire_settings(output: &str) -> (u32, u32, u32) {
         // Audio format
         if trimmed.contains("audio.format") && trimmed.contains('=') {
             if let Some(format_str) = trimmed.split('=').nth(1) {
-                let format = format_str.trim().trim_matches('"').trim().trim_start_matches('*').trim();
+                let format = format_str
+                    .trim()
+                    .trim_matches('"')
+                    .trim()
+                    .trim_start_matches('*')
+                    .trim();
                 bit_depth = match format {
                     "S16LE" => 16,
                     "S24LE" => 24,
@@ -531,11 +624,20 @@ fn parse_pipewire_settings(output: &str) -> (u32, u32, u32) {
         }
 
         // Buffer size - ONLY use default.clock.quantum, ignore quantum-limit
-        if trimmed.contains("default.clock.quantum") && trimmed.contains('=') &&
-           !trimmed.contains("min-quantum") && !trimmed.contains("max-quantum") &&
-           !trimmed.contains("quantum-limit") && !trimmed.contains("quantum-floor") {
+        if trimmed.contains("default.clock.quantum")
+            && trimmed.contains('=')
+            && !trimmed.contains("min-quantum")
+            && !trimmed.contains("max-quantum")
+            && !trimmed.contains("quantum-limit")
+            && !trimmed.contains("quantum-floor")
+        {
             if let Some(quantum_str) = trimmed.split('=').nth(1) {
-                let quantum_clean = quantum_str.trim().trim_matches('"').trim().trim_start_matches('*').trim();
+                let quantum_clean = quantum_str
+                    .trim()
+                    .trim_matches('"')
+                    .trim()
+                    .trim_start_matches('*')
+                    .trim();
                 if let Ok(quantum) = quantum_clean.parse::<u32>() {
                     buffer_size = quantum;
                 }
@@ -548,14 +650,25 @@ fn parse_pipewire_settings(output: &str) -> (u32, u32, u32) {
 
 fn detect_audio_system() -> String {
     // Check PipeWire
-    if Command::new("pw-cli").args(["info", "0"]).output().is_ok() ||
-       Command::new("systemctl").args(["--user", "is-active", "pipewire"]).output().is_ok() {
+    if Command::new("pw-cli").args(["info", "0"]).output().is_ok()
+        || Command::new("systemctl")
+            .args(["--user", "is-active", "pipewire"])
+            .output()
+            .is_ok()
+    {
         return "PipeWire".to_string();
     }
 
     // Check PulseAudio
-    if Command::new("pulseaudio").args(["--check"]).output().is_ok() ||
-       Command::new("systemctl").args(["--user", "is-active", "pulseaudio"]).output().is_ok() {
+    if Command::new("pulseaudio")
+        .args(["--check"])
+        .output()
+        .is_ok()
+        || Command::new("systemctl")
+            .args(["--user", "is-active", "pulseaudio"])
+            .output()
+            .is_ok()
+    {
         return "PulseAudio".to_string();
     }
 
@@ -599,7 +712,10 @@ pub fn resolve_pipewire_device_name(node_id: &str) -> Result<String, String> {
         }
     }
 
-    Err(format!("Could not find device name for PipeWire node {}", node_id))
+    Err(format!(
+        "Could not find device name for PipeWire node {}",
+        node_id
+    ))
 }
 
 pub fn resolve_pulse_device_name(pulse_id: &str) -> Result<String, String> {
@@ -619,7 +735,10 @@ pub fn resolve_pulse_device_name(pulse_id: &str) -> Result<String, String> {
     }
 
     // Check sources as fallback
-    if let Ok(output) = Command::new("pactl").args(["list", "sources", "short"]).output() {
+    if let Ok(output) = Command::new("pactl")
+        .args(["list", "sources", "short"])
+        .output()
+    {
         let output_str = String::from_utf8_lossy(&output.stdout);
         for line in output_str.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -700,15 +819,30 @@ mod tests {
             available: true,
         };
 
-        assert!(matches!(classify_device_type("Audio/Source", &device), DeviceType::Input));
-        assert!(matches!(classify_device_type("Audio/Sink", &device), DeviceType::Output));
-        assert!(matches!(classify_device_type("Audio/Duplex", &device), DeviceType::Duplex));
+        assert!(matches!(
+            classify_device_type("Audio/Source", &device),
+            DeviceType::Input
+        ));
+        assert!(matches!(
+            classify_device_type("Audio/Sink", &device),
+            DeviceType::Output
+        ));
+        assert!(matches!(
+            classify_device_type("Audio/Duplex", &device),
+            DeviceType::Duplex
+        ));
 
         device.name = "input_device".to_string();
-        assert!(matches!(classify_device_type("Audio", &device), DeviceType::Input));
+        assert!(matches!(
+            classify_device_type("Audio", &device),
+            DeviceType::Input
+        ));
 
         device.name = "output_device".to_string();
-        assert!(matches!(classify_device_type("Audio", &device), DeviceType::Output));
+        assert!(matches!(
+            classify_device_type("Audio", &device),
+            DeviceType::Output
+        ));
     }
 
     // NEW TESTS FOR V1.5 FEATURES
@@ -801,10 +935,7 @@ mod tests {
             extract_actual_device_name(pulse_info).unwrap(),
             "alsa_output.pci-0000_00_1f.3.analog-stereo"
         );
-        assert_eq!(
-            extract_actual_device_name(alsa_info).unwrap(),
-            "hw:0,0"
-        );
+        assert_eq!(extract_actual_device_name(alsa_info).unwrap(), "hw:0,0");
         assert!(extract_actual_device_name("").is_none());
     }
 }

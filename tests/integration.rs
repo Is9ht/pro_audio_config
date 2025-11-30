@@ -11,8 +11,8 @@ fn test_library_integration() {
     // Basic smoke test to ensure all modules work together
     use pro_audio_config::audio::AudioSettings;
     use pro_audio_config::config::{
+        apply_input_audio_settings_with_auth_blocking,
         apply_output_audio_settings_with_auth_blocking,
-        apply_input_audio_settings_with_auth_blocking
     };
 
     let settings = AudioSettings::new(48000, 24, 512, "default".to_string());
@@ -29,15 +29,12 @@ fn test_library_integration() {
 #[test]
 fn test_v15_feature_integration() {
     use pro_audio_config::audio::{
-        AudioSettings,
-        detect_output_audio_devices,
-        detect_input_audio_devices,
-        detect_output_audio_device,
-        detect_input_audio_device
+        AudioSettings, detect_input_audio_device, detect_input_audio_devices,
+        detect_output_audio_device, detect_output_audio_devices,
     };
     use pro_audio_config::config::{
+        apply_input_audio_settings_with_auth_blocking,
         apply_output_audio_settings_with_auth_blocking,
-        apply_input_audio_settings_with_auth_blocking
     };
 
     // Test that all v1.5 functions are properly integrated
@@ -128,7 +125,9 @@ fn test_wireplumber_debug_integration() {
 
         // Use regular join
         if let Err(_) = handle.join() {
-            println!("debug_wireplumber_config thread failed (may be expected in test environment)");
+            println!(
+                "debug_wireplumber_config thread failed (may be expected in test environment)"
+            );
         }
     });
     assert!(result.is_ok(), "debug_wireplumber_config should not panic");

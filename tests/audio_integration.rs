@@ -1,9 +1,14 @@
 //! Integration tests specifically for audio functionality
 
 // Common utilities for integration tests
-use pro_audio_config::audio::{AudioSettings, AudioDevice, DeviceType};
+use pro_audio_config::audio::{AudioDevice, AudioSettings, DeviceType};
 
-fn create_custom_settings(sample_rate: u32, bit_depth: u32, buffer_size: u32, device_id: &str) -> AudioSettings {
+fn create_custom_settings(
+    sample_rate: u32,
+    bit_depth: u32,
+    buffer_size: u32,
+    device_id: &str,
+) -> AudioSettings {
     AudioSettings::new(sample_rate, bit_depth, buffer_size, device_id.to_string())
 }
 
@@ -22,13 +27,12 @@ fn is_ci_environment() -> bool {
 }
 
 use pro_audio_config::audio::{
-    detect_all_audio_devices, detect_current_audio_settings,
-    detect_output_audio_devices, detect_input_audio_devices,
-    detect_output_audio_device, detect_input_audio_device,
-    resolve_pipewire_device_name, resolve_pulse_device_name
+    detect_all_audio_devices, detect_current_audio_settings, detect_input_audio_device,
+    detect_input_audio_devices, detect_output_audio_device, detect_output_audio_devices,
+    resolve_pipewire_device_name, resolve_pulse_device_name,
 };
-use pro_audio_config::config::apply_output_audio_settings_with_auth_blocking;
 use pro_audio_config::config::apply_input_audio_settings_with_auth_blocking;
+use pro_audio_config::config::apply_output_audio_settings_with_auth_blocking;
 use std::process::Command;
 
 // Keep this function local to audio_integration.rs since it's audio-specific
@@ -37,12 +41,12 @@ fn has_audio_hardware() -> bool {
         .args(["info"])
         .output()
         .map(|output| output.status.success())
-        .unwrap_or(false) ||
-    Command::new("aplay")
-        .args(["-L"])
-        .output()
-        .map(|output| output.status.success())
         .unwrap_or(false)
+        || Command::new("aplay")
+            .args(["-L"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
 }
 
 #[test]
@@ -79,19 +83,19 @@ fn test_separate_input_output_detection() {
     // If successful, verify device types are filtered correctly
     if let Ok(output_devs) = output_devices {
         for device in output_devs.iter().take(3) {
-            assert!(matches!(
-                device.device_type,
-                DeviceType::Output | DeviceType::Duplex
-            ), "Output device list should only contain output/duplex devices");
+            assert!(
+                matches!(device.device_type, DeviceType::Output | DeviceType::Duplex),
+                "Output device list should only contain output/duplex devices"
+            );
         }
     }
 
     if let Ok(input_devs) = input_devices {
         for device in input_devs.iter().take(3) {
-            assert!(matches!(
-                device.device_type,
-                DeviceType::Input | DeviceType::Duplex
-            ), "Input device list should only contain input/duplex devices");
+            assert!(
+                matches!(device.device_type, DeviceType::Input | DeviceType::Duplex),
+                "Input device list should only contain input/duplex devices"
+            );
         }
     }
 }
@@ -159,8 +163,14 @@ fn test_apply_functions_separate() {
         let _ = apply_input_audio_settings_with_auth_blocking(input_settings);
     });
 
-    assert!(output_result.is_ok(), "apply_output_audio_settings_with_auth_blocking should not panic");
-    assert!(input_result.is_ok(), "apply_input_audio_settings_with_auth_blocking should not panic");
+    assert!(
+        output_result.is_ok(),
+        "apply_output_audio_settings_with_auth_blocking should not panic"
+    );
+    assert!(
+        input_result.is_ok(),
+        "apply_input_audio_settings_with_auth_blocking should not panic"
+    );
 }
 
 #[test]
@@ -203,16 +213,24 @@ fn test_device_categorization_logic() {
         let id_lower = device.id.to_lowercase();
 
         // Test the categorization logic from the UI
-        let category = if desc_lower.contains("usb") || name_lower.contains("usb") || id_lower.contains("usb") {
-            "USB"
-        } else if desc_lower.contains("hdmi") || name_lower.contains("hdmi") ||
-                  desc_lower.contains("displayport") || name_lower.contains("displayport") {
-            "HDMI"
-        } else if name_lower.contains("pci") || id_lower.contains("pci") || desc_lower.contains("pci") {
-            "PCI"
-        } else {
-            "Other"
-        };
+        let category =
+            if desc_lower.contains("usb") || name_lower.contains("usb") || id_lower.contains("usb")
+            {
+                "USB"
+            } else if desc_lower.contains("hdmi")
+                || name_lower.contains("hdmi")
+                || desc_lower.contains("displayport")
+                || name_lower.contains("displayport")
+            {
+                "HDMI"
+            } else if name_lower.contains("pci")
+                || id_lower.contains("pci")
+                || desc_lower.contains("pci")
+            {
+                "PCI"
+            } else {
+                "Other"
+            };
 
         assert!(!category.is_empty());
         println!("Device {} categorized as: {}", device.name, category);
@@ -236,7 +254,8 @@ fn test_audio_settings_edge_cases() {
     ];
 
     for (sample_rate, bit_depth, buffer_size, device_id) in test_cases {
-        let settings = AudioSettings::new(sample_rate, bit_depth, buffer_size, device_id.to_string());
+        let settings =
+            AudioSettings::new(sample_rate, bit_depth, buffer_size, device_id.to_string());
         assert_eq!(settings.sample_rate, sample_rate);
         assert_eq!(settings.bit_depth, bit_depth);
         assert_eq!(settings.buffer_size, buffer_size);
@@ -248,18 +267,24 @@ fn test_audio_settings_edge_cases() {
 fn test_audio_settings_validation_failures() {
     // Test that invalid settings are properly rejected
     let invalid_cases = vec![
-        (12345, 24, 512, "default"),  // Invalid sample rate
-        (48000, 8, 512, "default"),   // Invalid bit depth
-        (48000, 24, 999, "default"),  // Invalid buffer size
-        (48000, 24, 512, ""),         // Empty device ID
+        (12345, 24, 512, "default"),        // Invalid sample rate
+        (48000, 8, 512, "default"),         // Invalid bit depth
+        (48000, 24, 999, "default"),        // Invalid buffer size
+        (48000, 24, 512, ""),               // Empty device ID
         (48000, 24, 512, "invalid device"), // Device ID with space
     ];
 
     for (sample_rate, bit_depth, buffer_size, device_id) in invalid_cases {
-        let settings = AudioSettings::new(sample_rate, bit_depth, buffer_size, device_id.to_string());
-        assert!(settings.validate().is_err(),
+        let settings =
+            AudioSettings::new(sample_rate, bit_depth, buffer_size, device_id.to_string());
+        assert!(
+            settings.validate().is_err(),
             "Settings should be invalid: {}Hz/{}bit/{}samples/{}",
-            sample_rate, bit_depth, buffer_size, device_id);
+            sample_rate,
+            bit_depth,
+            buffer_size,
+            device_id
+        );
     }
 }
 
@@ -273,7 +298,10 @@ fn test_apply_settings_integration() {
         let _ = apply_input_audio_settings_with_auth_blocking(settings);
     });
 
-    assert!(result.is_ok(), "apply audio settings functions should not panic");
+    assert!(
+        result.is_ok(),
+        "apply audio settings functions should not panic"
+    );
 }
 
 #[test]
@@ -296,7 +324,10 @@ fn test_system_command_availability() {
 
     // We should have at least some commands available in a typical system
     if !is_ci_environment() {
-        assert!(available_commands >= 2, "Expected at least 2 audio commands to be available");
+        assert!(
+            available_commands >= 2,
+            "Expected at least 2 audio commands to be available"
+        );
     }
 }
 
@@ -311,13 +342,17 @@ fn test_device_detection_resilience() {
 
             // If we have devices, verify their structure
             if !devices.is_empty() {
-                for device in devices.iter().take(3) { // Check first 3 devices
+                for device in devices.iter().take(3) {
+                    // Check first 3 devices
                     assert!(!device.name.is_empty());
                     assert!(!device.id.is_empty());
                     // Device type should be one of the expected variants
                     assert!(matches!(
                         device.device_type,
-                        DeviceType::Input | DeviceType::Output | DeviceType::Duplex | DeviceType::Unknown
+                        DeviceType::Input
+                            | DeviceType::Output
+                            | DeviceType::Duplex
+                            | DeviceType::Unknown
                     ));
                 }
             }
@@ -340,12 +375,16 @@ fn test_current_settings_detection() {
 
     match result {
         Ok(settings) => {
-            println!("Detected settings: {}Hz/{}bit/{}samples",
-                     settings.sample_rate, settings.bit_depth, settings.buffer_size);
+            println!(
+                "Detected settings: {}Hz/{}bit/{}samples",
+                settings.sample_rate, settings.bit_depth, settings.buffer_size
+            );
 
             // Validate detected settings are reasonable
             assert!(settings.sample_rate >= 8000 && settings.sample_rate <= 384000);
-            assert!(settings.bit_depth == 16 || settings.bit_depth == 24 || settings.bit_depth == 32);
+            assert!(
+                settings.bit_depth == 16 || settings.bit_depth == 24 || settings.bit_depth == 32
+            );
             assert!(settings.buffer_size >= 64 && settings.buffer_size <= 8192);
             assert!(!settings.device_id.is_empty());
         }
@@ -404,11 +443,7 @@ fn test_custom_settings_creation() {
 #[test]
 fn test_test_audio_device_creation() {
     // Test the helper function
-    let device = create_test_audio_device(
-        "test-device",
-        "Test USB Audio",
-        DeviceType::Output
-    );
+    let device = create_test_audio_device("test-device", "Test USB Audio", DeviceType::Output);
     assert_eq!(device.name, "test-device");
     assert_eq!(device.description, "Test USB Audio");
     assert_eq!(device.device_type, DeviceType::Output);

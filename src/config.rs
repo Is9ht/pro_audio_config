@@ -8,18 +8,22 @@
  * and multiple fallback approaches.
  */
 
+use crate::audio::AudioSettings;
+use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::fs;
-use crate::audio::AudioSettings;
 
 /// Applies output audio settings with authentication
-pub fn apply_output_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
+pub fn apply_output_audio_settings_with_auth_blocking(
+    settings: AudioSettings,
+) -> Result<(), String> {
     apply_audio_settings_with_auth(settings, "output")
 }
 
 /// Applies input audio settings with authentication
-pub fn apply_input_audio_settings_with_auth_blocking(settings: AudioSettings) -> Result<(), String> {
+pub fn apply_input_audio_settings_with_auth_blocking(
+    settings: AudioSettings,
+) -> Result<(), String> {
     apply_audio_settings_with_auth(settings, "input")
 }
 
@@ -30,19 +34,29 @@ pub fn apply_user_audio_settings(settings: AudioSettings, tab_type: &str) -> Res
 }
 
 /// Main function to apply audio settings with authentication
-fn apply_audio_settings_with_auth(settings: AudioSettings, stream_type: &str) -> Result<(), String> {
-    println!("Applying {} audio settings with authentication: {}Hz/{}bit/{} samples",
-             stream_type,
-             settings.sample_rate, settings.bit_depth, settings.buffer_size);
+fn apply_audio_settings_with_auth(
+    settings: AudioSettings,
+    stream_type: &str,
+) -> Result<(), String> {
+    println!(
+        "Applying {} audio settings with authentication: {}Hz/{}bit/{} samples",
+        stream_type, settings.sample_rate, settings.bit_depth, settings.buffer_size
+    );
 
     // First try the new multi-approach configuration
     match update_audio_settings(&settings, true) {
         Ok(()) => {
-            println!("✓ Successfully applied {} settings using new configuration system", stream_type);
+            println!(
+                "✓ Successfully applied {} settings using new configuration system",
+                stream_type
+            );
             return Ok(());
         }
         Err(e) => {
-            println!("New configuration system failed: {}, falling back to legacy method...", e);
+            println!(
+                "New configuration system failed: {}, falling back to legacy method...",
+                e
+            );
         }
     }
 
@@ -50,7 +64,10 @@ fn apply_audio_settings_with_auth(settings: AudioSettings, stream_type: &str) ->
     if should_use_legacy_wireplumber_config()? {
         apply_legacy_wireplumber_config(&settings, stream_type)
     } else {
-        Err("Legacy WirePlumber configuration not applicable for current WirePlumber version".to_string())
+        Err(
+            "Legacy WirePlumber configuration not applicable for current WirePlumber version"
+                .to_string(),
+        )
     }
 }
 
@@ -63,7 +80,12 @@ fn execute_with_privileges(command: &str, args: &[&str]) -> Result<(), String> {
         .arg(command)
         .args(args)
         .status()
-        .map_err(|e| format!("Failed to execute with pkexec: {}. Make sure pkexec is available.", e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to execute with pkexec: {}. Make sure pkexec is available.",
+                e
+            )
+        })?;
 
     if status.success() {
         Ok(())
@@ -74,12 +96,20 @@ fn execute_with_privileges(command: &str, args: &[&str]) -> Result<(), String> {
             .arg(command)
             .args(args)
             .status()
-            .map_err(|e| format!("Failed to execute with sudo: {}. Please run with administrator privileges.", e))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to execute with sudo: {}. Please run with administrator privileges.",
+                    e
+                )
+            })?;
 
         if status.success() {
             Ok(())
         } else {
-            Err("Privilege escalation failed. Please run as root or configure sudo/pkexec.".to_string())
+            Err(
+                "Privilege escalation failed. Please run as root or configure sudo/pkexec."
+                    .to_string(),
+            )
         }
     }
 }
@@ -91,8 +121,7 @@ fn write_config_with_privileges(config_path: &str, content: &str) -> Result<(), 
         let temp_file = format!("/tmp/pro-audio-config-{}", std::process::id());
 
         // Write to temp file first
-        fs::write(&temp_file, content)
-            .map_err(|e| format!("Failed to write temp file: {}", e))?;
+        fs::write(&temp_file, content).map_err(|e| format!("Failed to write temp file: {}", e))?;
 
         // Copy to system location with privileges
         execute_with_privileges("cp", &[&temp_file, config_path])?;
@@ -104,8 +133,7 @@ fn write_config_with_privileges(config_path: &str, content: &str) -> Result<(), 
     } else {
         // User path - no privileges needed
         if let Some(parent) = Path::new(config_path).parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
         }
 
         fs::write(config_path, content)
@@ -122,8 +150,7 @@ fn create_dir_all_with_privileges(path: &str) -> Result<(), String> {
         execute_with_privileges("mkdir", &["-p", path])?;
     } else {
         // User path - no privileges needed
-        fs::create_dir_all(path)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
+        fs::create_dir_all(path).map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
     Ok(())
@@ -144,7 +171,10 @@ fn should_use_legacy_wireplumber_config() -> Result<bool, String> {
             Ok(use_legacy)
         }
         Err(e) => {
-            println!("Could not detect WirePlumber version: {}, assuming modern version", e);
+            println!(
+                "Could not detect WirePlumber version: {}, assuming modern version",
+                e
+            );
             // If we can't detect version, assume modern and don't use legacy config
             Ok(false)
         }
@@ -154,12 +184,13 @@ fn should_use_legacy_wireplumber_config() -> Result<bool, String> {
 /// Gets the WirePlumber version as a string
 fn get_wireplumber_version() -> Result<String, String> {
     // Method 1: Try wireplumber --version directly
-    if let Ok(output) = Command::new("wireplumber")
-        .args(["--version"])
-        .output() {
+    if let Ok(output) = Command::new("wireplumber").args(["--version"]).output() {
         let version_output = String::from_utf8_lossy(&output.stdout);
         for line in version_output.lines() {
-            if line.contains("WirePlumber") || line.contains("wireplumber") || line.contains("version") {
+            if line.contains("WirePlumber")
+                || line.contains("wireplumber")
+                || line.contains("version")
+            {
                 // Look for version patterns like "0.5.12", "v0.4.14", etc.
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 for part in parts {
@@ -194,7 +225,9 @@ fn get_wireplumber_version() -> Result<String, String> {
                     // Look for version patterns in package output
                     let words: Vec<&str> = line.split_whitespace().collect();
                     for word in words {
-                        if word.chars().next().map_or(false, |c| c.is_numeric()) && word.contains('.') {
+                        if word.chars().next().map_or(false, |c| c.is_numeric())
+                            && word.contains('.')
+                        {
                             let version_parts: Vec<&str> = word.split('.').collect();
                             if version_parts.len() >= 2 {
                                 return Ok(format!("{}.{}", version_parts[0], version_parts[1]));
@@ -236,15 +269,24 @@ fn get_wireplumber_version() -> Result<String, String> {
 }
 
 /// Legacy WirePlumber configuration method (fallback for versions < 0.5)
-fn apply_legacy_wireplumber_config(settings: &AudioSettings, stream_type: &str) -> Result<(), String> {
+fn apply_legacy_wireplumber_config(
+    settings: &AudioSettings,
+    stream_type: &str,
+) -> Result<(), String> {
     println!("Applying legacy WirePlumber Lua configuration for version < 0.5");
 
     let config_content = generate_legacy_wireplumber_config(settings, stream_type);
     let username = whoami::username();
     let config_path = if stream_type == "output" {
-        format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-output.lua", username)
+        format!(
+            "/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-output.lua",
+            username
+        )
     } else {
-        format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-input.lua", username)
+        format!(
+            "/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-input.lua",
+            username
+        )
     };
 
     // Write configuration file (user path, no privileges needed)
@@ -272,7 +314,7 @@ fn generate_legacy_wireplumber_config(settings: &AudioSettings, stream_type: &st
         16 => "S16LE",
         24 => "S24LE",
         32 => "S32LE",
-        _ => "S24LE"
+        _ => "S24LE",
     };
 
     format!(
@@ -297,11 +339,7 @@ alsa_monitor.rules = {{
   }}
 }}
 "#,
-        stream_type,
-        device_pattern,
-        audio_format,
-        settings.sample_rate,
-        settings.buffer_size
+        stream_type, device_pattern, audio_format, settings.sample_rate, settings.buffer_size
     )
 }
 
@@ -318,7 +356,7 @@ fn generate_wireplumber_config(settings: &AudioSettings, _stream_type: &str) -> 
         16 => "S16LE",
         24 => "S24LE",
         32 => "S32LE",
-        _ => "S24LE"
+        _ => "S24LE",
     };
 
     format!(
@@ -346,18 +384,19 @@ fn generate_wireplumber_config(settings: &AudioSettings, _stream_type: &str) -> 
     ]
   }}
 }}"#,
-        device_pattern,
-        audio_format,
-        settings.sample_rate,
-        settings.buffer_size
+        device_pattern, audio_format, settings.sample_rate, settings.buffer_size
     )
 }
 
 /// Main function to apply audio settings using multiple configuration approaches with fallbacks
 pub fn update_audio_settings(settings: &AudioSettings, system_wide: bool) -> Result<(), String> {
-    println!("Applying {} audio settings: {}Hz/{}bit/{} samples",
-             if system_wide { "system-wide" } else { "user" },
-             settings.sample_rate, settings.bit_depth, settings.buffer_size);
+    println!(
+        "Applying {} audio settings: {}Hz/{}bit/{} samples",
+        if system_wide { "system-wide" } else { "user" },
+        settings.sample_rate,
+        settings.bit_depth,
+        settings.buffer_size
+    );
 
     // Clean up conflicting configs first
     if system_wide {
@@ -375,7 +414,10 @@ pub fn update_audio_settings(settings: &AudioSettings, system_wide: bool) -> Res
             true
         }
         Err(e) => {
-            println!("PipeWire fragment approach failed: {}, trying next approach...", e);
+            println!(
+                "PipeWire fragment approach failed: {}, trying next approach...",
+                e
+            );
             false
         }
     };
@@ -388,7 +430,10 @@ pub fn update_audio_settings(settings: &AudioSettings, system_wide: bool) -> Res
                 success = true;
             }
             Err(e) => {
-                println!("WirePlumber approach failed: {}, trying final approach...", e);
+                println!(
+                    "WirePlumber approach failed: {}, trying final approach...",
+                    e
+                );
 
                 // Approach 3: Modify main pipewire.conf as fallback
                 match modify_main_pipewire_config(settings, system_wide) {
@@ -423,9 +468,10 @@ pub fn update_audio_settings(settings: &AudioSettings, system_wide: bool) -> Res
 fn create_user_pipewire_fragment(settings: &AudioSettings) -> Result<(), String> {
     // Use user directories only
     let username = whoami::username();
-    let config_dirs = [
-        format!("/home/{}/.config/pipewire/pipewire.conf.d", username),
-    ];
+    let config_dirs = [format!(
+        "/home/{}/.config/pipewire/pipewire.conf.d",
+        username
+    )];
 
     let config_content = format!(
         r#"# Pro Audio Config - User High Priority Settings
@@ -452,9 +498,7 @@ context.modules = [
         flags = [ ifexists nofail ]
     }}
 ]"#,
-        settings.sample_rate,
-        settings.buffer_size,
-        settings.sample_rate
+        settings.sample_rate, settings.buffer_size, settings.sample_rate
     );
 
     for dir in &config_dirs {
@@ -477,9 +521,7 @@ context.modules = [
 /// Creates a system-wide PipeWire configuration fragment and cleans up user configs
 fn create_system_pipewire_fragment(settings: &AudioSettings) -> Result<(), String> {
     // Use system directories only
-    let config_dirs = [
-        "/etc/pipewire/pipewire.conf.d".to_string(),
-    ];
+    let config_dirs = ["/etc/pipewire/pipewire.conf.d".to_string()];
 
     let config_content = format!(
         r#"# Pro Audio Config - System-wide High Priority Settings
@@ -506,9 +548,7 @@ context.modules = [
         flags = [ ifexists nofail ]
     }}
 ]"#,
-        settings.sample_rate,
-        settings.buffer_size,
-        settings.sample_rate
+        settings.sample_rate, settings.buffer_size, settings.sample_rate
     );
 
     for dir in &config_dirs {
@@ -557,9 +597,7 @@ context.modules = [
         flags = [ ifexists nofail ]
     }}
 ]"#,
-        settings.sample_rate,
-        settings.buffer_size,
-        settings.sample_rate
+        settings.sample_rate, settings.buffer_size, settings.sample_rate
     );
 
     // Try multiple standard locations - use higher number for higher priority
@@ -567,7 +605,10 @@ context.modules = [
     let config_dirs = if system_wide {
         vec!["/etc/pipewire/pipewire.conf.d".to_string()]
     } else {
-        vec![format!("/home/{}/.config/pipewire/pipewire.conf.d", username)]
+        vec![format!(
+            "/home/{}/.config/pipewire/pipewire.conf.d",
+            username
+        )]
     };
 
     for dir in &config_dirs {
@@ -625,7 +666,10 @@ fn cleanup_system_pipewire_configs() -> Result<(), String> {
                     removed_count += 1;
                 }
                 Err(e) => {
-                    println!("Note: Could not remove system config {}: {}", config_path, e);
+                    println!(
+                        "Note: Could not remove system config {}: {}",
+                        config_path, e
+                    );
                 }
             }
         }
@@ -642,9 +686,18 @@ fn cleanup_system_pipewire_configs() -> Result<(), String> {
 fn cleanup_user_pipewire_configs() -> Result<(), String> {
     let username = whoami::username();
     let user_configs = [
-        format!("/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf", username),
-        format!("/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf", username),
-        format!("/home/{}/.config/pipewire/pipewire.conf.d/50-pro-audio.conf", username),
+        format!(
+            "/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf",
+            username
+        ),
+        format!(
+            "/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf",
+            username
+        ),
+        format!(
+            "/home/{}/.config/pipewire/pipewire.conf.d/50-pro-audio.conf",
+            username
+        ),
     ];
 
     let mut removed_count = 0;
@@ -670,14 +723,20 @@ fn cleanup_user_pipewire_configs() -> Result<(), String> {
 }
 
 /// Creates a WirePlumber configuration file (updated format for versions >= 0.5)
-fn create_wireplumber_config_new(settings: &AudioSettings, system_wide: bool) -> Result<(), String> {
+fn create_wireplumber_config_new(
+    settings: &AudioSettings,
+    system_wide: bool,
+) -> Result<(), String> {
     let username = whoami::username();
 
     // Use consistent types - both vectors should contain String
     let config_dirs = if system_wide {
         vec!["/etc/wireplumber/wireplumber.conf.d".to_string()]
     } else {
-        vec![format!("/home/{}/.config/wireplumber/wireplumber.conf.d", username)]
+        vec![format!(
+            "/home/{}/.config/wireplumber/wireplumber.conf.d",
+            username
+        )]
     };
 
     for dir in &config_dirs {
@@ -731,19 +790,40 @@ fn modify_main_pipewire_config(settings: &AudioSettings, system_wide: bool) -> R
 
     for path in &config_paths {
         if Path::new(path).exists() {
-            let content = fs::read_to_string(path)
-                .map_err(|e| format!("Failed to read {}: {}", path, e))?;
+            let content =
+                fs::read_to_string(path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
 
             // Try multiple possible patterns for clock rate and quantum
             let patterns = [
-                ("#default.clock.rate          = 48000", format!("default.clock.rate          = {}", settings.sample_rate)),
-                ("#default.clock.rate          = 192000", format!("default.clock.rate          = {}", settings.sample_rate)),
-                ("default.clock.rate          = 48000", format!("default.clock.rate          = {}", settings.sample_rate)),
-                ("#default.clock.quantum       = 1024", format!("default.clock.quantum       = {}", settings.buffer_size)),
-                ("#default.clock.quantum       = 8192", format!("default.clock.quantum       = {}", settings.buffer_size)),
-                ("default.clock.quantum       = 1024", format!("default.clock.quantum       = {}", settings.buffer_size)),
+                (
+                    "#default.clock.rate          = 48000",
+                    format!("default.clock.rate          = {}", settings.sample_rate),
+                ),
+                (
+                    "#default.clock.rate          = 192000",
+                    format!("default.clock.rate          = {}", settings.sample_rate),
+                ),
+                (
+                    "default.clock.rate          = 48000",
+                    format!("default.clock.rate          = {}", settings.sample_rate),
+                ),
+                (
+                    "#default.clock.quantum       = 1024",
+                    format!("default.clock.quantum       = {}", settings.buffer_size),
+                ),
+                (
+                    "#default.clock.quantum       = 8192",
+                    format!("default.clock.quantum       = {}", settings.buffer_size),
+                ),
+                (
+                    "default.clock.quantum       = 1024",
+                    format!("default.clock.quantum       = {}", settings.buffer_size),
+                ),
                 // Also update the allowed rates
-                ("default.clock.allowed-rates = \\[ 44100, 48000, 96000, 192000 \\]", format!("default.clock.allowed-rates = [ {} ]", settings.sample_rate)),
+                (
+                    "default.clock.allowed-rates = \\[ 44100, 48000, 96000, 192000 \\]",
+                    format!("default.clock.allowed-rates = [ {} ]", settings.sample_rate),
+                ),
             ];
 
             let mut updated_content = content.clone();
@@ -788,22 +868,31 @@ fn verify_settings_applied(settings: &AudioSettings) -> Result<(), String> {
     let current_settings = crate::audio::detect_current_audio_settings()
         .map_err(|e| format!("Failed to detect current settings for verification: {}", e))?;
 
-    println!("Current settings: {}Hz/{}bit/{} samples",
-             current_settings.sample_rate, current_settings.bit_depth, current_settings.buffer_size);
-    println!("Expected settings: {}Hz/{}bit/{} samples",
-             settings.sample_rate, settings.bit_depth, settings.buffer_size);
+    println!(
+        "Current settings: {}Hz/{}bit/{} samples",
+        current_settings.sample_rate, current_settings.bit_depth, current_settings.buffer_size
+    );
+    println!(
+        "Expected settings: {}Hz/{}bit/{} samples",
+        settings.sample_rate, settings.bit_depth, settings.buffer_size
+    );
 
     // Check if settings match (with some tolerance for buffer size)
     if current_settings.sample_rate != settings.sample_rate {
-        return Err(format!("Sample rate not applied: expected {}Hz, got {}Hz",
-                          settings.sample_rate, current_settings.sample_rate));
+        return Err(format!(
+            "Sample rate not applied: expected {}Hz, got {}Hz",
+            settings.sample_rate, current_settings.sample_rate
+        ));
     }
 
     // Buffer size might be adjusted by PipeWire, so we allow some difference
     let buffer_diff = (current_settings.buffer_size as i32 - settings.buffer_size as i32).abs();
-    if buffer_diff > 256 { // Allow 256 samples difference
-        return Err(format!("Buffer size significantly different: expected {}, got {}",
-                          settings.buffer_size, current_settings.buffer_size));
+    if buffer_diff > 256 {
+        // Allow 256 samples difference
+        return Err(format!(
+            "Buffer size significantly different: expected {}, got {}",
+            settings.buffer_size, current_settings.buffer_size
+        ));
     }
 
     println!("✓ Settings verified successfully");
@@ -830,9 +919,7 @@ pub fn debug_wireplumber_config() -> Result<(), String> {
     }
 
     // List config files WirePlumber is using
-    let _ = Command::new("wpctl")
-        .args(["status"])
-        .status();
+    let _ = Command::new("wpctl").args(["status"]).status();
 
     // Check config directory structure
     let username = whoami::username();
@@ -863,11 +950,23 @@ fn restart_audio_services(use_legacy: bool, system_wide: bool) -> Result<(), Str
 
     if system_wide {
         // For system-wide config changes, restart the user services for the target user.
-        println!("Restarting user audio services for user '{}' with privileges...", username);
+        println!(
+            "Restarting user audio services for user '{}' with privileges...",
+            username
+        );
 
         // Use `sudo -u $username` to run the user service commands as that specific user.
         let status = Command::new("sudo")
-            .args(["-u", &username, "systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"])
+            .args([
+                "-u",
+                &username,
+                "systemctl",
+                "--user",
+                "restart",
+                "pipewire",
+                "pipewire-pulse",
+                "wireplumber",
+            ])
             .status()
             .map_err(|e| format!("Failed to restart user services: {}", e))?;
 
@@ -898,7 +997,13 @@ fn restart_audio_services(use_legacy: bool, system_wide: bool) -> Result<(), Str
             if Path::new("/run/systemd/seats").exists() {
                 println!("Using systemd to restart user services...");
                 let status = Command::new("systemctl")
-                    .args(["--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"])
+                    .args([
+                        "--user",
+                        "restart",
+                        "pipewire",
+                        "pipewire-pulse",
+                        "wireplumber",
+                    ])
                     .status()
                     .map_err(|e| format!("Failed to restart services: {}", e))?;
 
@@ -908,10 +1013,7 @@ fn restart_audio_services(use_legacy: bool, system_wide: bool) -> Result<(), Str
             } else {
                 // Fallback: kill and let them restart automatically
                 println!("Systemd not available, using fallback restart method...");
-                Command::new("pkill")
-                    .args(["-f", "pipewire"])
-                    .status()
-                    .ok(); // Ignore errors here
+                Command::new("pkill").args(["-f", "pipewire"]).status().ok(); // Ignore errors here
 
                 Command::new("pkill")
                     .args(["-f", "wireplumber"])
@@ -937,15 +1039,36 @@ pub fn cleanup_config_files() -> Result<(), String> {
     let files_to_remove = [
         "/etc/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf",
         "/etc/pipewire/pipewire.conf.d/99-pro-audio.conf",
-        &format!("/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf", username),
-        &format!("/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf", username),
-        &format!("/home/{}/.local/share/pipewire/pipewire.conf.d/99-pro-audio.conf", username),
+        &format!(
+            "/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio-high-priority.conf",
+            username
+        ),
+        &format!(
+            "/home/{}/.config/pipewire/pipewire.conf.d/99-pro-audio.conf",
+            username
+        ),
+        &format!(
+            "/home/{}/.local/share/pipewire/pipewire.conf.d/99-pro-audio.conf",
+            username
+        ),
         "/etc/wireplumber/wireplumber.conf.d/99-pro-audio.conf",
         "/etc/wireplumber/wireplumber.conf.d/50-pro-audio.conf",
-        &format!("/home/{}/.config/wireplumber/wireplumber.conf.d/99-pro-audio.conf", username),
-        &format!("/home/{}/.config/wireplumber/wireplumber.conf.d/50-pro-audio.conf", username),
-        &format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-output.lua", username),
-        &format!("/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-input.lua", username),
+        &format!(
+            "/home/{}/.config/wireplumber/wireplumber.conf.d/99-pro-audio.conf",
+            username
+        ),
+        &format!(
+            "/home/{}/.config/wireplumber/wireplumber.conf.d/50-pro-audio.conf",
+            username
+        ),
+        &format!(
+            "/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-output.lua",
+            username
+        ),
+        &format!(
+            "/home/{}/.config/wireplumber/main.lua.d/50-pro-audio-input.lua",
+            username
+        ),
     ];
 
     let mut removed_count = 0;
@@ -975,7 +1098,10 @@ pub fn cleanup_config_files() -> Result<(), String> {
 
     if removed_count > 0 {
         restart_audio_services(false, false)?;
-        println!("Removed {} configuration files and restarted services", removed_count);
+        println!(
+            "Removed {} configuration files and restarted services",
+            removed_count
+        );
     }
 
     Ok(())
@@ -999,7 +1125,10 @@ pub fn check_audio_services() -> Result<(), String> {
     }
 
     if !missing_services.is_empty() {
-        Err(format!("Missing audio services: {}", missing_services.join(", ")))
+        Err(format!(
+            "Missing audio services: {}",
+            missing_services.join(", ")
+        ))
     } else {
         Ok(())
     }

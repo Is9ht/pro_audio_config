@@ -1,7 +1,7 @@
 //! Integration tests for UI components and data flow
 
 // Common utilities for integration tests
-use pro_audio_config::audio::{AudioSettings, AudioDevice, DeviceType};
+use pro_audio_config::audio::{AudioDevice, AudioSettings, DeviceType};
 use pro_audio_config::ui::{show_error_dialog, show_success_dialog};
 
 // Test the device grouping and categorization logic
@@ -52,15 +52,18 @@ fn test_device_grouping_categorization() {
 
         if desc_lower.contains("usb") || name_lower.contains("usb") || id_lower.contains("usb") {
             usb_devices.push(device);
-        }
-        else if desc_lower.contains("hdmi") || name_lower.contains("hdmi") ||
-                desc_lower.contains("displayport") || name_lower.contains("displayport") {
+        } else if desc_lower.contains("hdmi")
+            || name_lower.contains("hdmi")
+            || desc_lower.contains("displayport")
+            || name_lower.contains("displayport")
+        {
             hdmi_devices.push(device);
-        }
-        else if name_lower.contains("pci") || id_lower.contains("pci") || desc_lower.contains("pci") {
+        } else if name_lower.contains("pci")
+            || id_lower.contains("pci")
+            || desc_lower.contains("pci")
+        {
             pci_devices.push(device);
-        }
-        else {
+        } else {
             other_devices.push(device);
         }
     }
@@ -98,7 +101,8 @@ fn test_device_display_formatting() {
     };
 
     // Clean the description (remove status words like SUSPENDED)
-    let clean_description = device.description
+    let clean_description = device
+        .description
         .replace("SUSPENDED", "")
         .replace("RUNNING", "")
         .replace("IDLE", "")
@@ -136,28 +140,24 @@ fn test_tab_data_structures() {
     }
 
     let output_tab = SimulatedOutputTab {
-        available_devices: vec![
-            AudioDevice {
-                name: "output-device".to_string(),
-                description: "Output Device".to_string(),
-                id: "alsa:output".to_string(),
-                device_type: DeviceType::Output,
-                available: true,
-            }
-        ],
+        available_devices: vec![AudioDevice {
+            name: "output-device".to_string(),
+            description: "Output Device".to_string(),
+            id: "alsa:output".to_string(),
+            device_type: DeviceType::Output,
+            available: true,
+        }],
         current_default_device: Arc::new(Mutex::new("default-output".to_string())),
     };
 
     let input_tab = SimulatedInputTab {
-        available_devices: vec![
-            AudioDevice {
-                name: "input-device".to_string(),
-                description: "Input Device".to_string(),
-                id: "alsa:input".to_string(),
-                device_type: DeviceType::Input,
-                available: true,
-            }
-        ],
+        available_devices: vec![AudioDevice {
+            name: "input-device".to_string(),
+            description: "Input Device".to_string(),
+            id: "alsa:input".to_string(),
+            device_type: DeviceType::Input,
+            available: true,
+        }],
         current_default_device: Arc::new(Mutex::new("default-input".to_string())),
     };
 
@@ -188,8 +188,10 @@ fn test_audio_settings_ui_data_flow() {
     assert_eq!(settings.sample_rate, settings_for_worker.sample_rate);
 
     // Test UI display formatting
-    let display_text = format!("{} Hz / {} bit / {} samples",
-        settings.sample_rate, settings.bit_depth, settings.buffer_size);
+    let display_text = format!(
+        "{} Hz / {} bit / {} samples",
+        settings.sample_rate, settings.bit_depth, settings.buffer_size
+    );
     assert!(!display_text.is_empty());
     assert!(display_text.contains("48000"));
     assert!(display_text.contains("24"));
@@ -254,9 +256,21 @@ fn test_ui_combo_box_simulation() {
     let default_buffer_size = 512;
 
     // Verify defaults exist in our data structures
-    assert!(sample_rates.iter().any(|(rate, _)| *rate == default_sample_rate));
-    assert!(bit_depths.iter().any(|(depth, _)| *depth == default_bit_depth));
-    assert!(buffer_sizes.iter().any(|(size, _)| *size == default_buffer_size));
+    assert!(
+        sample_rates
+            .iter()
+            .any(|(rate, _)| *rate == default_sample_rate)
+    );
+    assert!(
+        bit_depths
+            .iter()
+            .any(|(depth, _)| *depth == default_bit_depth)
+    );
+    assert!(
+        buffer_sizes
+            .iter()
+            .any(|(size, _)| *size == default_buffer_size)
+    );
 
     // Test the parsing logic used in the UI
     let sample_rate = "48000".parse::<u32>().unwrap_or(44100);
@@ -281,7 +295,11 @@ fn test_ui_fallback_mechanisms() {
 
     for (input, fallback, expected) in test_cases {
         let result = input.parse::<u32>().ok().unwrap_or(fallback);
-        assert_eq!(result, expected, "Failed for input '{}' with fallback {}", input, fallback);
+        assert_eq!(
+            result, expected,
+            "Failed for input '{}' with fallback {}",
+            input, fallback
+        );
     }
 }
 
@@ -315,8 +333,10 @@ fn test_ui_string_operations() {
 
     // Test UI label generation
     let settings = AudioSettings::new(96000, 32, 1024, "alsa:usb_device".to_string());
-    let status_text = format!("Configured: {}Hz, {}bit, {} samples on {}",
-        settings.sample_rate, settings.bit_depth, settings.buffer_size, settings.device_id);
+    let status_text = format!(
+        "Configured: {}Hz, {}bit, {} samples on {}",
+        settings.sample_rate, settings.bit_depth, settings.buffer_size, settings.device_id
+    );
 
     assert!(status_text.contains("96000"));
     assert!(status_text.contains("32"));
@@ -329,7 +349,12 @@ fn test_ui_thread_safety_patterns() {
     // Test patterns that ensure thread safety in the UI
     use std::sync::{Arc, Mutex};
 
-    let settings = Arc::new(Mutex::new(AudioSettings::new(48000, 24, 512, "default".to_string())));
+    let settings = Arc::new(Mutex::new(AudioSettings::new(
+        48000,
+        24,
+        512,
+        "default".to_string(),
+    )));
 
     // Simulate UI thread accessing settings
     let ui_settings = Arc::clone(&settings);
