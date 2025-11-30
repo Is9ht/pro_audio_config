@@ -15,20 +15,15 @@ pub mod utils;
 
 // Re-export main functionality
 pub use audio::{
-    AudioSettings, AudioDevice, DeviceType,
-    detect_audio_device, detect_all_audio_devices, detect_current_audio_settings,
-    detect_output_audio_devices, detect_input_audio_devices,
-    detect_output_audio_device, detect_input_audio_device,
-    resolve_pipewire_device_name, resolve_pulse_device_name
+    AudioDevice, AudioSettings, DeviceType, detect_all_audio_devices, detect_audio_device,
+    detect_current_audio_settings, detect_input_audio_device, detect_input_audio_devices,
+    detect_output_audio_device, detect_output_audio_devices, resolve_pipewire_device_name,
+    resolve_pulse_device_name,
 };
 
 pub use config::{
-    apply_output_audio_settings_with_auth_blocking,
-    apply_input_audio_settings_with_auth_blocking,
-    apply_user_audio_settings,
-    update_audio_settings,
-    cleanup_config_files,
-    check_audio_services
+    apply_input_audio_settings_with_auth_blocking, apply_output_audio_settings_with_auth_blocking,
+    apply_user_audio_settings, check_audio_services, cleanup_config_files, update_audio_settings,
 };
 
 pub use ui::{AudioApp, create_section_box, show_error_dialog, show_success_dialog};
@@ -39,10 +34,10 @@ mod integration_tests {
 
     #[cfg(test)]
     pub mod test_utils {
-	
-	// Re-export test helpers
+
+        // Re-export test helpers
     }
-    
+
     #[test]
     fn test_library_exports() {
         // Test that all main functionality is properly exported
@@ -50,7 +45,7 @@ mod integration_tests {
         let _ = detect_audio_device();
         let _ = detect_all_audio_devices();
         let _ = detect_current_audio_settings();
-        
+
         // Test new exports
         let _ = detect_output_audio_devices();
         let _ = detect_input_audio_devices();

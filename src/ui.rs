@@ -1,5 +1,5 @@
 /*
- * Pro Audio Config - User Interface Module  
+ * Pro Audio Config - User Interface Module
  * Version: 1.6
  * Copyright (c) 2025 Peter Leukanič
  * Under MIT License
@@ -8,27 +8,28 @@
  * Graphical user interface module implementing separate configuration tabs with comprehensive device management.
  */
 
+use glib::ControlFlow;
 use gtk::prelude::*;
 #[allow(unused_imports)] // AboutDialog is used in code
 use gtk::{
-    Application, ApplicationWindow, Button, Label, ComboBoxText, Box as GtkBox, 
-    Orientation, Frame, ScrolledWindow, Separator, MessageDialog, MessageType, ButtonsType,
-    DialogFlags, Window, Adjustment, AboutDialog, Notebook, CheckButton
+    AboutDialog, Adjustment, Application, ApplicationWindow, Box as GtkBox, Button, ButtonsType,
+    CheckButton, ComboBoxText, DialogFlags, Frame, Label, MessageDialog, MessageType, Notebook,
+    Orientation, ScrolledWindow, Separator, Window,
 };
-use glib::ControlFlow;
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
-use std::fs;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
 use crate::audio::{
-    AudioSettings, AudioDevice,  
-    detect_output_audio_device, detect_input_audio_device,
-    detect_output_audio_devices, detect_input_audio_devices,
-    detect_current_audio_settings,
-    DeviceType
+    AudioDevice, AudioSettings, DeviceType, detect_current_audio_settings,
+    detect_input_audio_device, detect_input_audio_devices, detect_output_audio_device,
+    detect_output_audio_devices,
 };
-use crate::config::{apply_output_audio_settings_with_auth_blocking, apply_input_audio_settings_with_auth_blocking, apply_user_audio_settings};
+use crate::config::{
+    apply_input_audio_settings_with_auth_blocking, apply_output_audio_settings_with_auth_blocking,
+    apply_user_audio_settings,
+};
 
 #[derive(Clone)]
 pub struct AudioApp {
@@ -43,7 +44,7 @@ pub struct AudioTab {
     pub container: GtkBox,
     pub status_label: Label,
     pub sample_rate_combo: ComboBoxText,
-    pub bit_depth_combo: ComboBoxText, 
+    pub bit_depth_combo: ComboBoxText,
     pub buffer_size_combo: ComboBoxText,
     pub device_combo: ComboBoxText,
     pub current_device_label: Label,
@@ -151,13 +152,13 @@ const SAMPLE_RATES: &[(u32, &str)] = &[
     (44100, "44.1 kHz - CD Quality"),
     (48000, "48 kHz - Standard Audio"),
     (96000, "96 kHz - High Resolution"),
-    (192000, "192 kHz - Studio Quality"), 
+    (192000, "192 kHz - Studio Quality"),
     (384000, "384 kHz - Ultra High Resolution"),
 ];
 
 const BIT_DEPTHS: &[(u32, &str)] = &[
     (16, "16 bit - CD Quality"),
-    (24, "24 bit - High Resolution"), 
+    (24, "24 bit - High Resolution"),
     (32, "32 bit - Studio Quality"),
 ];
 
@@ -179,14 +180,14 @@ impl AudioApp {
 
         // Set window icon from system or development location
         Self::set_window_icon(&window);
-        
+
         // Create menu bar
         let menu_bar = Self::create_menu_bar();
 
         let scrolled_window = ScrolledWindow::new(None::<&Adjustment>, None::<&Adjustment>);
         scrolled_window.set_propagate_natural_height(true);
         scrolled_window.set_propagate_natural_width(true);
-        
+
         let main_box = GtkBox::new(Orientation::Vertical, 12);
         main_box.set_margin_top(18);
         main_box.set_margin_bottom(18);
@@ -198,17 +199,17 @@ impl AudioApp {
 
         // ===== CREATE NOTEBOOK (TABS) =====
         let notebook = Notebook::new();
-        
+
         // Create output tab
         let output_tab = AudioTab::new(TabType::Output);
         let output_label = Label::new(Some("Output"));
         notebook.append_page(&output_tab.container, Some(&output_label));
-        
-        // Create input tab  
+
+        // Create input tab
         let input_tab = AudioTab::new(TabType::Input);
         let input_label = Label::new(Some("Input"));
         notebook.append_page(&input_tab.container, Some(&input_label));
-        
+
         main_box.pack_start(&notebook, true, true, 0);
         scrolled_window.add(&main_box);
         window.add(&scrolled_window);
@@ -222,7 +223,7 @@ impl AudioApp {
 
         // ===== CONNECT SIGNALS =====
         app_state.setup_signals();
-        
+
         // ===== DETECT ALL DEVICES AND CURRENT SETTINGS =====
         app_state.initialize_tabs();
 
@@ -234,20 +235,20 @@ impl AudioApp {
             // System installation paths (multiple sizes)
             "/usr/share/icons/hicolor/16x16/apps/pro-audio-config.png",
             "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
-            "/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png", 
+            "/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png",
             "/usr/share/icons/hicolor/256x256/apps/pro-audio-config.png",
             // Development paths
             "icons/48x48/pro-audio-config.png",
             "icons/32x32/pro-audio-config.png",
-            "icons/icon.png", // Relative path from project root
-            "icon.png", // Current directory
+            "icons/icon.png",    // Relative path from project root
+            "icon.png",          // Current directory
             "../icons/icon.png", // If running from different directory
-            "./icons/icon.png", // Explicit current directory
+            "./icons/icon.png",  // Explicit current directory
             // Alternative system paths
             "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
             "/usr/local/share/icons/hicolor/48x48/apps/pro-audio-config.png",
         ];
-        
+
         for path in &icon_paths {
             if let Ok(pixbuf) = gtk::gdk_pixbuf::Pixbuf::from_file(path) {
                 window.set_icon(Some(&pixbuf));
@@ -258,21 +259,21 @@ impl AudioApp {
 
     fn create_menu_bar() -> gtk::MenuBar {
         let menu_bar = gtk::MenuBar::new();
-        
+
         // Create Help menu
         let help_menu = gtk::Menu::new();
         let help_menu_item = gtk::MenuItem::with_label("Help");
         help_menu_item.set_submenu(Some(&help_menu));
-        
+
         // Create About item
         let about_item = gtk::MenuItem::with_label("About");
         about_item.connect_activate(|_| {
             show_about_dialog();
         });
-        
+
         help_menu.append(&about_item);
         menu_bar.append(&help_menu_item);
-        
+
         menu_bar
     }
 
@@ -294,7 +295,9 @@ impl AudioApp {
 
 impl AudioTab {
     fn load_preferences() -> AppPreferences {
-        if let Some(prefs_dir) = directories::ProjectDirs::from("com", "proaudioconfig", "Pro Audio Config") {
+        if let Some(prefs_dir) =
+            directories::ProjectDirs::from("com", "proaudioconfig", "Pro Audio Config")
+        {
             let prefs_path = prefs_dir.config_dir().join("preferences.toml");
             if let Ok(content) = fs::read_to_string(&prefs_path) {
                 if let Ok(prefs) = toml::from_str(&content) {
@@ -304,152 +307,178 @@ impl AudioTab {
         }
         AppPreferences::default()
     }
-    
+
     fn save_preferences(prefs: &AppPreferences) -> Result<(), String> {
-        if let Some(prefs_dir) = directories::ProjectDirs::from("com", "proaudioconfig", "Pro Audio Config") {
+        if let Some(prefs_dir) =
+            directories::ProjectDirs::from("com", "proaudioconfig", "Pro Audio Config")
+        {
             let config_dir = prefs_dir.config_dir();
             println!("DEBUG: Saving preferences to: {}", config_dir.display());
-            
+
             fs::create_dir_all(config_dir)
                 .map_err(|e| format!("Failed to create config directory: {}", e))?;
-            
+
             let prefs_path = config_dir.join("preferences.toml");
             println!("DEBUG: Preferences file path: {}", prefs_path.display());
-            
+
             let content = toml::to_string(prefs)
                 .map_err(|e| format!("Failed to serialize preferences: {}", e))?;
-            
+
             fs::write(&prefs_path, content)
                 .map_err(|e| format!("Failed to write preferences: {}", e))?;
-                
-            println!("DEBUG: Preferences saved successfully to: {}", prefs_path.display());
+
+            println!(
+                "DEBUG: Preferences saved successfully to: {}",
+                prefs_path.display()
+            );
         }
         Ok(())
     }
-    
+
     pub fn new(tab_type: TabType) -> Self {
-	let container = GtkBox::new(Orientation::Vertical, 12);
-	container.set_margin_top(12);
-	container.set_margin_bottom(12);
-	container.set_margin_start(12);
-	container.set_margin_end(12);
-	
-	// ===== DEVICE SECTION =====
-	let (device_frame, device_box) = create_section_box(tab_type.device_label());
-	
-	let current_device_label = Label::new(Some(&format!("{}: Detecting...", tab_type.current_device_prefix())));
-	current_device_label.set_halign(gtk::Align::Start);
-	current_device_label.set_selectable(true);
-	
-	let device_selection_label = Label::new(Some(&format!("Select {} to Configure:", tab_type.device_label())));
-	device_selection_label.set_halign(gtk::Align::Start);
-	
-	let device_combo = ComboBoxText::new();
-	
-	let selection_info_label = Label::new(Some(&format!("Select an {} device from the dropdown above", tab_type.title().to_lowercase())));
-	selection_info_label.set_halign(gtk::Align::Start);
-	
-	device_box.pack_start(&current_device_label, false, false, 0);
-	device_box.pack_start(&device_selection_label, false, false, 0);
-	device_box.pack_start(&device_combo, false, false, 0);
-	device_box.pack_start(&selection_info_label, false, false, 0);
-	
-	// ===== SETTINGS SECTION =====
-	let (settings_frame, settings_box) = create_section_box(tab_type.settings_label());
-	let preferences = Arc::new(Mutex::new(Self::load_preferences()));
-	
-	// Create the system-wide checkbox HERE and use it throughout
-	let system_wide_checkbox = CheckButton::with_label("Apply system-wide (requires admin password)");
-	
-	// DEBUG: Print loaded preferences
-	{
+        let container = GtkBox::new(Orientation::Vertical, 12);
+        container.set_margin_top(12);
+        container.set_margin_bottom(12);
+        container.set_margin_start(12);
+        container.set_margin_end(12);
+
+        // ===== DEVICE SECTION =====
+        let (device_frame, device_box) = create_section_box(tab_type.device_label());
+
+        let current_device_label = Label::new(Some(&format!(
+            "{}: Detecting...",
+            tab_type.current_device_prefix()
+        )));
+        current_device_label.set_halign(gtk::Align::Start);
+        current_device_label.set_selectable(true);
+
+        let device_selection_label = Label::new(Some(&format!(
+            "Select {} to Configure:",
+            tab_type.device_label()
+        )));
+        device_selection_label.set_halign(gtk::Align::Start);
+
+        let device_combo = ComboBoxText::new();
+
+        let selection_info_label = Label::new(Some(&format!(
+            "Select an {} device from the dropdown above",
+            tab_type.title().to_lowercase()
+        )));
+        selection_info_label.set_halign(gtk::Align::Start);
+
+        device_box.pack_start(&current_device_label, false, false, 0);
+        device_box.pack_start(&device_selection_label, false, false, 0);
+        device_box.pack_start(&device_combo, false, false, 0);
+        device_box.pack_start(&selection_info_label, false, false, 0);
+
+        // ===== SETTINGS SECTION =====
+        let (settings_frame, settings_box) = create_section_box(tab_type.settings_label());
+        let preferences = Arc::new(Mutex::new(Self::load_preferences()));
+
+        // Create the system-wide checkbox HERE and use it throughout
+        let system_wide_checkbox =
+            CheckButton::with_label("Apply system-wide (requires admin password)");
+
+        // DEBUG: Print loaded preferences
+        {
             let prefs = preferences.lock().unwrap();
-            println!("DEBUG: Loaded preferences - system_wide_config: {}", prefs.system_wide_config);
-	}
-	
-	// Set initial state from preferences
-	{
+            println!(
+                "DEBUG: Loaded preferences - system_wide_config: {}",
+                prefs.system_wide_config
+            );
+        }
+
+        // Set initial state from preferences
+        {
             let prefs = preferences.lock().unwrap();
             system_wide_checkbox.set_active(prefs.system_wide_config);
             println!("DEBUG: Setting checkbox to: {}", prefs.system_wide_config);
-	}
-	
-	// Sample Rate Selection
-	let sample_rate_label = Label::new(Some("Sample Rate:"));
-	sample_rate_label.set_halign(gtk::Align::Start);
-	
-	let sample_rate_combo = ComboBoxText::new();
-	Self::populate_combo_box(&sample_rate_combo, SAMPLE_RATES);
-	
-	// Set default values based on tab type
-	if matches!(tab_type, TabType::Output) {
+        }
+
+        // Sample Rate Selection
+        let sample_rate_label = Label::new(Some("Sample Rate:"));
+        sample_rate_label.set_halign(gtk::Align::Start);
+
+        let sample_rate_combo = ComboBoxText::new();
+        Self::populate_combo_box(&sample_rate_combo, SAMPLE_RATES);
+
+        // Set default values based on tab type
+        if matches!(tab_type, TabType::Output) {
             sample_rate_combo.set_active_id(Some("48000"));
-	}
-	
-	// Bit Depth Selection
-	let bit_depth_label = Label::new(Some("Bit Depth:"));
-	bit_depth_label.set_halign(gtk::Align::Start);
-	
-	let bit_depth_combo = ComboBoxText::new();
-	Self::populate_combo_box(&bit_depth_combo, BIT_DEPTHS);
-	
-	if matches!(tab_type, TabType::Output) {
+        }
+
+        // Bit Depth Selection
+        let bit_depth_label = Label::new(Some("Bit Depth:"));
+        bit_depth_label.set_halign(gtk::Align::Start);
+
+        let bit_depth_combo = ComboBoxText::new();
+        Self::populate_combo_box(&bit_depth_combo, BIT_DEPTHS);
+
+        if matches!(tab_type, TabType::Output) {
             bit_depth_combo.set_active_id(Some("24"));
-	}
-	
-	// Buffer Size Selection
-	let buffer_size_label = Label::new(Some("Buffer Size:"));
-	buffer_size_label.set_halign(gtk::Align::Start);
-	
-	let buffer_size_combo = ComboBoxText::new();
-	Self::populate_combo_box(&buffer_size_combo, BUFFER_SIZES);
-	
-	if matches!(tab_type, TabType::Output) {
+        }
+
+        // Buffer Size Selection
+        let buffer_size_label = Label::new(Some("Buffer Size:"));
+        buffer_size_label.set_halign(gtk::Align::Start);
+
+        let buffer_size_combo = ComboBoxText::new();
+        Self::populate_combo_box(&buffer_size_combo, BUFFER_SIZES);
+
+        if matches!(tab_type, TabType::Output) {
             buffer_size_combo.set_active_id(Some("512"));
-	}
-	
-	// Add settings to settings box
-	settings_box.pack_start(&sample_rate_label, false, false, 0);
-	settings_box.pack_start(&sample_rate_combo, false, false, 0);
-	settings_box.pack_start(&bit_depth_label, false, false, 0);
-	settings_box.pack_start(&bit_depth_combo, false, false, 0);
-	settings_box.pack_start(&buffer_size_label, false, false, 0);
-	settings_box.pack_start(&buffer_size_combo, false, false, 0);
-	
-	// ===== ACTIONS SECTION =====
-	let (actions_frame, actions_box) = create_section_box(tab_type.actions_label());
-	
-	let status_label = Label::new(Some(&format!("Ready to configure {} audio settings", tab_type.title().to_lowercase())));
-	status_label.set_halign(gtk::Align::Start);
-	
-	let apply_button = Button::with_label(tab_type.apply_button_label());
-	
-	let info_label = Label::new(Some(&format!("Note: Administrator privileges will be requested to apply system {} audio settings", tab_type.title().to_lowercase())));
-	info_label.set_line_wrap(true);
-	
-	actions_box.pack_start(&status_label, false, false, 0);
-	actions_box.pack_start(&apply_button, false, false, 0);
-	actions_box.pack_start(&info_label, false, false, 0);
-	
-	// ===== SYSTEM CONFIG SECTION =====
-	let (system_frame, system_box) = create_section_box("Configuration Scope");
-	
-	// Use the SAME system_wide_checkbox instance that we created above
-	let system_info_label = Label::new(Some("System-wide changes affect all users and require authentication"));
-	system_info_label.set_line_wrap(true);
-	
-	system_box.pack_start(&system_wide_checkbox, false, false, 0);
-	system_box.pack_start(&system_info_label, false, false, 0);
-	
-	// Add to container after actions section
-	container.pack_start(&system_frame, false, false, 0);
-	
-	// ===== ASSEMBLE TAB =====
-	container.pack_start(&device_frame, false, false, 0);
-	container.pack_start(&settings_frame, false, false, 0);
-	container.pack_start(&actions_frame, false, false, 0);
-	
-	Self {
+        }
+
+        // Add settings to settings box
+        settings_box.pack_start(&sample_rate_label, false, false, 0);
+        settings_box.pack_start(&sample_rate_combo, false, false, 0);
+        settings_box.pack_start(&bit_depth_label, false, false, 0);
+        settings_box.pack_start(&bit_depth_combo, false, false, 0);
+        settings_box.pack_start(&buffer_size_label, false, false, 0);
+        settings_box.pack_start(&buffer_size_combo, false, false, 0);
+
+        // ===== ACTIONS SECTION =====
+        let (actions_frame, actions_box) = create_section_box(tab_type.actions_label());
+
+        let status_label = Label::new(Some(&format!(
+            "Ready to configure {} audio settings",
+            tab_type.title().to_lowercase()
+        )));
+        status_label.set_halign(gtk::Align::Start);
+
+        let apply_button = Button::with_label(tab_type.apply_button_label());
+
+        let info_label = Label::new(Some(&format!(
+            "Note: Administrator privileges will be requested to apply system {} audio settings",
+            tab_type.title().to_lowercase()
+        )));
+        info_label.set_line_wrap(true);
+
+        actions_box.pack_start(&status_label, false, false, 0);
+        actions_box.pack_start(&apply_button, false, false, 0);
+        actions_box.pack_start(&info_label, false, false, 0);
+
+        // ===== SYSTEM CONFIG SECTION =====
+        let (system_frame, system_box) = create_section_box("Configuration Scope");
+
+        // Use the SAME system_wide_checkbox instance that we created above
+        let system_info_label = Label::new(Some(
+            "System-wide changes affect all users and require authentication",
+        ));
+        system_info_label.set_line_wrap(true);
+
+        system_box.pack_start(&system_wide_checkbox, false, false, 0);
+        system_box.pack_start(&system_info_label, false, false, 0);
+
+        // Add to container after actions section
+        container.pack_start(&system_frame, false, false, 0);
+
+        // ===== ASSEMBLE TAB =====
+        container.pack_start(&device_frame, false, false, 0);
+        container.pack_start(&settings_frame, false, false, 0);
+        container.pack_start(&actions_frame, false, false, 0);
+
+        Self {
             container,
             status_label,
             sample_rate_combo,
@@ -463,7 +492,7 @@ impl AudioTab {
             tab_type,
             system_wide_checkbox, // This is now the same instance that's in the UI
             preferences,
-	}
+        }
     }
 
     // Helper function to populate combo boxes from common definitions
@@ -472,26 +501,25 @@ impl AudioTab {
             combo.append(Some(&value.to_string()), label);
         }
     }
-    
+
     // Detect current default device and store the actual device name
     pub fn detect_current_device(&self) {
         let current_device_label = self.current_device_label.clone();
         let current_default_device = Arc::clone(&self.current_default_device);
         let detect_fn = self.tab_type.detect_current_device_fn();
         let prefix = self.tab_type.current_device_prefix().to_string();
-        
+
         let (tx, rx) = mpsc::channel();
         let rx_arc = Arc::new(Mutex::new(rx));
-        
+
         std::thread::spawn(move || {
-            let result = detect_fn()
-                .and_then(|device_info| {
-                    Self::extract_actual_device_name(&device_info)
-                        .ok_or_else(|| "Could not extract device name".to_string())
-                });
+            let result = detect_fn().and_then(|device_info| {
+                Self::extract_actual_device_name(&device_info)
+                    .ok_or_else(|| "Could not extract device name".to_string())
+            });
             let _ = tx.send(result);
         });
-        
+
         let rx_timeout = Arc::clone(&rx_arc);
         glib::timeout_add_local(Duration::from_millis(100), move || {
             let rx_guard = rx_timeout.lock().unwrap();
@@ -504,11 +532,12 @@ impl AudioTab {
                                 let mut stored = current_default_device.lock().unwrap();
                                 *stored = device_name.clone();
                             }
-                            
+
                             current_device_label.set_text(&format!("{}: {}", prefix, device_name));
                         }
                         Err(e) => {
-                            current_device_label.set_text(&format!("{}: Error detecting - {}", prefix, e));
+                            current_device_label
+                                .set_text(&format!("{}: Error detecting - {}", prefix, e));
                         }
                     }
                     ControlFlow::Break
@@ -521,23 +550,23 @@ impl AudioTab {
             }
         });
     }
-    
+
     pub fn detect_all_devices(&self) {
         let device_combo = self.device_combo.clone();
         let current_default_device = Arc::clone(&self.current_default_device);
         let detect_fn = self.tab_type.detect_devices_fn();
         let tab_type = self.tab_type.clone();
-        
-        // Create channel for communication  
+
+        // Create channel for communication
         let (tx, rx) = mpsc::channel();
         let rx_arc = Arc::new(Mutex::new(rx));
-        
+
         // Spawn thread for device detection
         std::thread::spawn(move || {
             let result = detect_fn();
             let _ = tx.send(result);
         });
-        
+
         // Set up timeout to check for result
         let rx_timeout = Arc::clone(&rx_arc);
         glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -548,7 +577,7 @@ impl AudioTab {
                         Ok(devices) => {
                             // Clear existing items
                             device_combo.remove_all();
-                            
+
                             // Get the stored default device name if available
                             let default_device_name = {
                                 let stored = current_default_device.lock().unwrap();
@@ -559,68 +588,78 @@ impl AudioTab {
                                     "Default System Device".to_string()
                                 }
                             };
-                            
+
                             // Add "Default Device" option with actual device name
                             device_combo.append(Some("default"), &default_device_name);
-                            
+
                             // Group devices by type for better organization
                             let mut usb_devices = Vec::new();
                             let mut hdmi_devices = Vec::new();
                             let mut pci_devices = Vec::new();
                             let mut other_devices = Vec::new();
-                            
+
                             for device in &devices {
                                 let desc_lower = device.description.to_lowercase();
                                 let name_lower = device.name.to_lowercase();
                                 let id_lower = device.id.to_lowercase();
-                                
-                                if desc_lower.contains("usb") || name_lower.contains("usb") || id_lower.contains("usb") {
+
+                                if desc_lower.contains("usb")
+                                    || name_lower.contains("usb")
+                                    || id_lower.contains("usb")
+                                {
                                     usb_devices.push(device);
-                                }
-                                else if desc_lower.contains("hdmi") || name_lower.contains("hdmi") || 
-                                    desc_lower.contains("displayport") || name_lower.contains("displayport") {
-                                        hdmi_devices.push(device);
-                                    }
-                                else if name_lower.contains("pci") || id_lower.contains("pci") || desc_lower.contains("pci") {
+                                } else if desc_lower.contains("hdmi")
+                                    || name_lower.contains("hdmi")
+                                    || desc_lower.contains("displayport")
+                                    || name_lower.contains("displayport")
+                                {
+                                    hdmi_devices.push(device);
+                                } else if name_lower.contains("pci")
+                                    || id_lower.contains("pci")
+                                    || desc_lower.contains("pci")
+                                {
                                     pci_devices.push(device);
-                                }
-                                else {
+                                } else {
                                     other_devices.push(device);
                                 }
                             }
-                            
+
                             // Add USB devices first (most common for pro audio)
                             if !usb_devices.is_empty() {
-                                device_combo.append(Some("separator1"), "--- USB Audio Devices ---");
+                                device_combo
+                                    .append(Some("separator1"), "--- USB Audio Devices ---");
                                 for device in usb_devices {
                                     Self::add_device_to_combo(&device_combo, device, &tab_type);
                                 }
                             }
-                            
+
                             // Add PCI devices (onboard and sound cards)
                             if !pci_devices.is_empty() {
-                                device_combo.append(Some("separator2"), "--- PCI Audio Devices ---");
+                                device_combo
+                                    .append(Some("separator2"), "--- PCI Audio Devices ---");
                                 for device in pci_devices {
                                     Self::add_device_to_combo(&device_combo, device, &tab_type);
                                 }
                             }
-                            
+
                             // Add HDMI devices (only for output)
                             if matches!(tab_type, TabType::Output) && !hdmi_devices.is_empty() {
-                                device_combo.append(Some("separator3"), "--- HDMI/DisplayPort Audio ---");
+                                device_combo
+                                    .append(Some("separator3"), "--- HDMI/DisplayPort Audio ---");
                                 for device in hdmi_devices {
                                     Self::add_device_to_combo(&device_combo, device, &tab_type);
                                 }
                             }
-                            
+
                             // Add any remaining devices
                             if !other_devices.is_empty() {
-                                device_combo.append(Some("separator4"), "--- Other Audio Devices ---");
+                                device_combo
+                                    .append(Some("separator4"), "--- Other Audio Devices ---");
                                 for device in other_devices {
                                     Self::add_device_to_combo(&device_combo, device, &tab_type);
                                 }
                             }
-                        },
+                        }
                         Err(e) => {
                             println!("Error detecting {} devices: {}", tab_type.title(), e);
                             // Still add default option
@@ -640,22 +679,22 @@ impl AudioTab {
             }
         });
     }
-    
+
     // Helper function to add devices to combo box with consistent formatting
     fn add_device_to_combo(combo: &ComboBoxText, device: &AudioDevice, tab_type: &TabType) {
         let device_type = match device.device_type {
             DeviceType::Input => "🎤 Input",
             DeviceType::Output => "🔊 Output",
-            DeviceType::Duplex => "🔄 Duplex", 
+            DeviceType::Duplex => "🔄 Duplex",
             _ => match tab_type {
                 TabType::Input => "🎤 Input",
                 TabType::Output => "🔊 Output",
             },
         };
-        
+
         // Clean the description by removing "SUSPENDED" and any trailing status words
         let clean_description = clean_device_description(&device.description);
-        
+
         let display_text = if clean_description.is_empty() {
             format!("{} {}", device_type, device.name)
         } else {
@@ -663,24 +702,24 @@ impl AudioTab {
         };
         combo.append(Some(&device.id), &display_text);
     }
-    
+
     pub fn detect_current_settings(&self) {
         let sample_rate_combo = self.sample_rate_combo.clone();
         let bit_depth_combo = self.bit_depth_combo.clone();
         let buffer_size_combo = self.buffer_size_combo.clone();
-        
+
         // Create channel for communication
         let (tx, rx) = mpsc::channel();
-        
+
         // Store the receiver in an Arc<Mutex> to share between threads
         let rx_arc = Arc::new(Mutex::new(rx));
-        
+
         // Spawn thread for blocking operation
         std::thread::spawn(move || {
             let result = detect_current_audio_settings();
             let _ = tx.send(result);
         });
-        
+
         // Set up timeout to check for result
         let rx_timeout = Arc::clone(&rx_arc);
         glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -690,9 +729,11 @@ impl AudioTab {
                     match result {
                         Ok(settings) => {
                             // Set the combo boxes to current values
-                            sample_rate_combo.set_active_id(Some(&settings.sample_rate.to_string()));
+                            sample_rate_combo
+                                .set_active_id(Some(&settings.sample_rate.to_string()));
                             bit_depth_combo.set_active_id(Some(&settings.bit_depth.to_string()));
-                            buffer_size_combo.set_active_id(Some(&settings.buffer_size.to_string()));
+                            buffer_size_combo
+                                .set_active_id(Some(&settings.buffer_size.to_string()));
                         }
                         Err(e) => {
                             println!("Failed to detect current {} settings: {}", "audio", e);
@@ -741,7 +782,10 @@ impl AudioTab {
             let mut prefs = preferences_clone.lock().unwrap();
             prefs.system_wide_config = system_wide;
 
-            println!("DEBUG: Checkbox toggled - system_wide: {}, saving preferences...", system_wide);
+            println!(
+                "DEBUG: Checkbox toggled - system_wide: {}, saving preferences...",
+                system_wide
+            );
 
             // Save preferences
             if let Err(e) = Self::save_preferences(&prefs) {
@@ -757,7 +801,7 @@ impl AudioTab {
                 println!("User-specific configuration enabled");
             }
         });
-        
+
         // Clone tab_type for each closure that needs it
         let tab_type_for_apply = self.tab_type.clone();
         let tab_type_for_device = self.tab_type.clone();
@@ -767,41 +811,41 @@ impl AudioTab {
         self.apply_button.connect_clicked(move |_| {
             // Clone tab_type for use in this closure
             let tab_type = tab_type_for_apply.clone();
-            
+
             // Get system-wide preference
             let system_wide = {
                 let prefs = preferences_clone.lock().unwrap();
                 prefs.system_wide_config
             };
-            
+
             // Update UI immediately with appropriate message
             if system_wide {
                 status_label.set_text(&format!("Applying system-wide {} settings... (May prompt for admin password)", tab_type.title().to_lowercase()));
             } else {
                 status_label.set_text(&format!("Applying user {} settings...", tab_type.title().to_lowercase()));
             }
-            
+
             apply_button.set_sensitive(false);
-            
+
             // Get selected device ID
             let device_id = device_combo.active_id()
                 .map(|id| id.to_string())
                 .unwrap_or_else(|| "default".to_string());
-            
+
             // Get settings
             let settings = {
                 let sample_rate = sample_rate_combo.active_id()
                     .and_then(|id| id.parse::<u32>().ok())
                     .unwrap_or(48000);
-                
+
                 let bit_depth = bit_depth_combo.active_id()
                     .and_then(|id| id.parse::<u32>().ok())
                     .unwrap_or(24);
-                
+
                 let buffer_size = buffer_size_combo.active_id()
                     .and_then(|id| id.parse::<u32>().ok())
                     .unwrap_or(512);
-                
+
                 AudioSettings {
                     sample_rate,
                     bit_depth,
@@ -809,22 +853,22 @@ impl AudioTab {
                     device_id,
                 }
             };
-            
+
             let status_label_clone = status_label.clone();
             let apply_button_clone = apply_button.clone();
-            
+
             // Clone app_state for use in the thread
             let app_state_clone = app_state.clone();
-            
+
             // Create channel for communication
             let (tx, rx) = mpsc::channel();
-            
+
             // Store the receiver in an Arc<Mutex> to share between threads
             let rx_arc = Arc::new(Mutex::new(rx));
-            
+
             // Clone tab_type for the thread
             let tab_type_thread = tab_type.clone();
-            
+
             // Spawn thread for blocking operation
             std::thread::spawn(move || {
                 // Pass system_wide to the apply function
@@ -837,13 +881,13 @@ impl AudioTab {
                 };
                 let _ = tx.send(result);
             });
-            
+
             // Clone values for the timeout closure to avoid move issues
             let tab_type_timeout = tab_type.clone();
             let status_label_timeout = status_label_clone.clone();
             let apply_button_timeout = apply_button_clone.clone();
             let app_state_timeout = app_state_clone.clone();
-            
+
             // Set up timeout to check for result
             let rx_timeout: Arc<Mutex<mpsc::Receiver<Result<(), String>>>> = Arc::clone(&rx_arc);
             glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -855,7 +899,7 @@ impl AudioTab {
                                 status_label_timeout.set_text(&format!("{} settings applied successfully!", tab_type_timeout.title()));
                                 apply_button_timeout.set_sensitive(true);
                                 show_success_dialog(&format!("{} audio settings applied successfully. The audio system will restart.", tab_type_timeout.title()));
-                                
+
                                 // FORCE REDETECTION OF DEVICES AFTER RESTART
                                 // Wait a bit for services to stabilize, then redetect
                                 let app_state_redetect = app_state_timeout.clone();
@@ -869,10 +913,10 @@ impl AudioTab {
                                     app_state_redetect.input_tab.detect_current_device();
                                     app_state_redetect.output_tab.detect_current_settings();
                                     app_state_redetect.input_tab.detect_current_settings();
-                                    
+
                                     // Update status to indicate redetection completed
                                     status_label_for_closure.set_text(&format!("{} settings applied - devices updated", tab_type_for_redetect.title()));
-                                    
+
                                     ControlFlow::Break
                                 });
                             }
@@ -898,13 +942,13 @@ impl AudioTab {
                 }
             });
         });
-    
+
         // Show selection info when device changes
         self.device_combo.connect_changed(move |combo| {
             // Clone tab_type for use in this closure
             let tab_type = tab_type_for_device.clone();
             let selection_prefix = tab_type.selection_prefix().to_string();
-            
+
             if let Some(active_id) = combo.active_id() {
                 // Skip separators and other non-selectable items
                 if active_id.starts_with("separator") || active_id == "no_devices" {
@@ -912,12 +956,16 @@ impl AudioTab {
                     combo.set_active_id(Some("default"));
                     return;
                 }
-                
+
                 let selection_text = if active_id == "default" {
                     // Use the stored device name
                     let stored_name = current_default_device.lock().unwrap();
                     if !stored_name.is_empty() {
-                        format!("Selected: Default {} Device ({})", tab_type.title(), stored_name)
+                        format!(
+                            "Selected: Default {} Device ({})",
+                            tab_type.title(),
+                            stored_name
+                        )
                     } else {
                         format!("Selected: Default {} Device", tab_type.title())
                     }
@@ -941,7 +989,7 @@ impl AudioTab {
             .replace("ALSA:", "")
             .trim()
             .to_string();
-        
+
         if cleaned.is_empty() {
             None
         } else {
@@ -975,7 +1023,6 @@ fn clean_display_text(display_text: &str) -> String {
         .to_string()
 }
 
-
 // Helper function to clean device display name (remove PipeWire: prefix etc.)
 #[allow(dead_code)] // Used
 fn clean_device_display(device_info: &str) -> String {
@@ -991,25 +1038,25 @@ pub fn create_section_box(title: &str) -> (Frame, GtkBox) {
     let frame = Frame::new(None);
     frame.set_margin_top(6);
     frame.set_margin_bottom(6);
-    
+
     let section_box = GtkBox::new(Orientation::Vertical, 12);
     section_box.set_margin_top(12);
     section_box.set_margin_bottom(12);
     section_box.set_margin_start(12);
     section_box.set_margin_end(12);
-    
+
     let title_label = Label::new(None);
     title_label.set_markup(&format!("<b>{}</b>", title));
     title_label.set_halign(gtk::Align::Start);
-    
+
     section_box.pack_start(&title_label, false, false, 0);
-    
+
     // Add separator
     let separator = Separator::new(Orientation::Horizontal);
     section_box.pack_start(&separator, false, false, 0);
-    
+
     frame.add(&section_box);
-    
+
     (frame, section_box)
 }
 
@@ -1019,11 +1066,11 @@ pub fn show_error_dialog(message: &str) {
         DialogFlags::MODAL,
         MessageType::Error,
         ButtonsType::Ok,
-        "Failed to apply audio settings"
+        "Failed to apply audio settings",
     );
-    
+
     dialog.set_title("Error Applying Settings");
-    
+
     // Format the message to show the actual error details
     let display_message = if message.contains("Script failed") {
         // Extract the actual error part from the message
@@ -1035,13 +1082,13 @@ pub fn show_error_dialog(message: &str) {
     } else {
         message.to_string()
     };
-    
+
     dialog.set_secondary_text(Some(&display_message));
 
     dialog.connect_response(|dialog, _| {
         dialog.close();
     });
-    
+
     dialog.show_all();
 }
 
@@ -1051,28 +1098,30 @@ pub fn show_success_dialog(message: &str) {
         DialogFlags::MODAL,
         MessageType::Info,
         ButtonsType::Ok,
-        "Settings Applied Successfully"
+        "Settings Applied Successfully",
     );
-    
+
     dialog.set_secondary_text(Some(message));
 
     dialog.connect_response(|dialog, _| {
         dialog.close();
     });
-    
+
     dialog.show_all();
 }
 
 pub fn show_about_dialog() {
     let dialog = gtk::AboutDialog::new();
-    
+
     dialog.set_title("About Pro Audio Config");
     dialog.set_program_name("Pro Audio Config");
     dialog.set_version(Some("1.6"));
     dialog.set_website(Some("https://github.com/Peter-L-SVK/pro_audio_config"));
     dialog.set_copyright(Some("Copyright © 2025 Peter Leukanič"));
     dialog.set_authors(&["Peter Leukanič"]);
-    dialog.set_comments(Some("Professional audio configuration tool for Linux\nWritten in Rust programming language"));    
+    dialog.set_comments(Some(
+        "Professional audio configuration tool for Linux\nWritten in Rust programming language",
+    ));
     // Set license text (optional)
     dialog.set_license_type(gtk::License::MitX11);
 
@@ -1084,7 +1133,7 @@ pub fn show_about_dialog() {
          but WITHOUT ANY WARRANTY; without even the implied warranty of\n\
          MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\
          \n\
-         For more details, see the LICENSE file included with this distribution."
+         For more details, see the LICENSE file included with this distribution.",
     ));
     dialog.set_wrap_license(true);
 
@@ -1092,34 +1141,34 @@ pub fn show_about_dialog() {
         // System installation paths (multiple sizes)
         "/usr/share/icons/hicolor/16x16/apps/pro-audio-config.png",
         "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
-        "/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png", 
+        "/usr/share/icons/hicolor/32x32/apps/pro-audio-config.png",
         "/usr/share/icons/hicolor/256x256/apps/pro-audio-config.png",
         // Development paths
         "icons/48x48/pro-audio-config.png",
         "icons/32x32/pro-audio-config.png",
-        "icons/icon.png", // Relative path from project root
-        "icon.png", // Current directory
+        "icons/icon.png",    // Relative path from project root
+        "icon.png",          // Current directory
         "../icons/icon.png", // If running from different directory
-        "./icons/icon.png", // Explicit current directory
+        "./icons/icon.png",  // Explicit current directory
         // Alternative system paths
         "/usr/share/icons/hicolor/48x48/apps/pro-audio-config.png",
         "/usr/local/share/icons/hicolor/48x48/apps/pro-audio-config.png",
     ];
-    
+
     for path in &icon_paths {
         if let Ok(pixbuf) = gtk::gdk_pixbuf::Pixbuf::from_file(path) {
             dialog.set_logo(Some(&pixbuf));
             break;
         }
     }
-    
+
     dialog.set_modal(true);
     dialog.set_transient_for(Some(&get_main_window()));
-    
+
     dialog.connect_response(|dialog, _| {
         dialog.close();
     });
-    
+
     dialog.show_all();
 }
 
@@ -1137,12 +1186,18 @@ mod tests {
     fn test_tab_type_methods() {
         assert_eq!(TabType::Output.title(), "Output");
         assert_eq!(TabType::Input.title(), "Input");
-        
+
         assert_eq!(TabType::Output.device_label(), "Output Audio Device");
         assert_eq!(TabType::Input.device_label(), "Input Audio Device");
-        
-        assert_eq!(TabType::Output.apply_button_label(), "Apply Output Audio Settings");
-        assert_eq!(TabType::Input.apply_button_label(), "Apply Input Audio Settings");
+
+        assert_eq!(
+            TabType::Output.apply_button_label(),
+            "Apply Output Audio Settings"
+        );
+        assert_eq!(
+            TabType::Input.apply_button_label(),
+            "Apply Input Audio Settings"
+        );
     }
 
     #[test]
@@ -1155,10 +1210,7 @@ mod tests {
             clean_device_description("SUSPENDED PipeWire Device"),
             "PipeWire Device"
         );
-        assert_eq!(
-            clean_device_description("Device - RUNNING"),
-            "Device"
-        );
+        assert_eq!(clean_device_description("Device - RUNNING"), "Device");
         assert_eq!(
             clean_device_description("Normal Device Description"),
             "Normal Device Description"
@@ -1180,7 +1232,9 @@ mod tests {
     #[test]
     fn test_clean_device_display() {
         assert_eq!(
-            clean_device_display("PipeWire: alsa_output.usb-PreSonus_Studio_26c_0142446A-00.analog-surround-40"),
+            clean_device_display(
+                "PipeWire: alsa_output.usb-PreSonus_Studio_26c_0142446A-00.analog-surround-40"
+            ),
             "alsa_output.usb-PreSonus_Studio_26c_0142446A-00.analog-surround-40"
         );
         assert_eq!(
@@ -1195,7 +1249,7 @@ mod tests {
         let sample_rate = "48000".parse::<u32>().ok().unwrap_or(44100);
         let bit_depth = "24".parse::<u32>().ok().unwrap_or(16);
         let buffer_size = "512".parse::<u32>().ok().unwrap_or(256);
-        
+
         assert_eq!(sample_rate, 48000);
         assert_eq!(bit_depth, 24);
         assert_eq!(buffer_size, 512);
@@ -1207,7 +1261,7 @@ mod tests {
         let invalid_rate = "invalid".parse::<u32>().ok().unwrap_or(48000);
         let invalid_depth = "invalid".parse::<u32>().ok().unwrap_or(24);
         let invalid_size = "invalid".parse::<u32>().ok().unwrap_or(512);
-        
+
         assert_eq!(invalid_rate, 48000);
         assert_eq!(invalid_depth, 24);
         assert_eq!(invalid_size, 512);
@@ -1222,7 +1276,7 @@ mod tests {
             buffer_size: 1024,
             device_id: "default".to_string(),
         };
-        
+
         assert_eq!(settings.sample_rate, 96000);
         assert_eq!(settings.bit_depth, 32);
         assert_eq!(settings.buffer_size, 1024);
@@ -1239,7 +1293,7 @@ mod tests {
             device_type: DeviceType::Output,
             available: true,
         };
-        
+
         let hdmi_device = AudioDevice {
             name: "hdmi-device".to_string(),
             description: "HDMI Output".to_string(),
@@ -1247,7 +1301,7 @@ mod tests {
             device_type: DeviceType::Output,
             available: true,
         };
-        
+
         let pci_device = AudioDevice {
             name: "pci-device".to_string(),
             description: "PCI Sound Card".to_string(),
@@ -1255,7 +1309,7 @@ mod tests {
             device_type: DeviceType::Output,
             available: true,
         };
-        
+
         // Test categorization logic (simplified version)
         assert!(usb_device.description.to_lowercase().contains("usb"));
         assert!(hdmi_device.description.to_lowercase().contains("hdmi"));
@@ -1266,22 +1320,22 @@ mod tests {
     fn test_combo_box_population() {
         // Test that combo boxes are populated with correct options
         // Without initializing GTK, we test the logic indirectly
-        
+
         let sample_rates = SAMPLE_RATES;
         let bit_depths = BIT_DEPTHS;
         let buffer_sizes = BUFFER_SIZES;
-        
+
         // Verify our constants contain expected values
         assert!(sample_rates.iter().any(|(rate, _)| *rate == 48000));
         assert!(bit_depths.iter().any(|(depth, _)| *depth == 24));
         assert!(buffer_sizes.iter().any(|(size, _)| *size == 512));
-        
+
         // Test the populate_combo_box logic conceptually
         let mut test_vec = Vec::new();
         for (value, label) in sample_rates {
             test_vec.push((*value, *label));
         }
-        
+
         assert_eq!(test_vec.len(), sample_rates.len());
     }
 
@@ -1289,11 +1343,11 @@ mod tests {
     fn test_dialog_functions() {
         // Test that dialog helper functions exist and have correct signatures
         // Skip actual execution since GTK isn't initialized
-        
+
         // Just verify the functions compile by testing their string processing logic
         let error_message = "Test error";
         let success_message = "Test success";
-        
+
         // Test the error message processing logic used in show_error_dialog
         let display_message = if error_message.contains("Script failed") {
             if let Some(error_part) = error_message.split("\n\n").nth(1) {
@@ -1304,9 +1358,9 @@ mod tests {
         } else {
             error_message.to_string()
         };
-        
+
         assert_eq!(display_message, "Test error");
-        
+
         // Test success message processing
         assert!(!success_message.is_empty());
     }
@@ -1320,7 +1374,7 @@ mod tests {
         } else {
             format!("Selected Output: {}", "test device")
         };
-        
+
         assert!(!selection_text.is_empty());
         assert!(selection_text.contains("Selected"));
     }

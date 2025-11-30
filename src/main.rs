@@ -8,15 +8,12 @@
  * Audio configuration tool for Linux PipeWire/ALSA systems (Jack in mind)
  */
 
-use pro_audio_config::AudioApp;
-use gtk::prelude::*;
 use gtk::Application;
+use gtk::prelude::*;
+use pro_audio_config::AudioApp;
 
 fn main() {
-    let app = Application::new(
-        Some("com.example.audio-config"),
-        Default::default(),
-    );
+    let app = Application::new(Some("com.example.audio-config"), Default::default());
 
     app.connect_activate(|app| {
         let audio_app = AudioApp::new(app);
