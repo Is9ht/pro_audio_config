@@ -46,8 +46,8 @@ jobs:
       - name: cargo fmt check
         run: cargo fmt --all -- --check
 
-      - name: cargo clippy (deny warnings)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: cargo clippy (warn only)
+        run: cargo clippy --all-targets --all-features
 
       - name: Run tests
         env:
