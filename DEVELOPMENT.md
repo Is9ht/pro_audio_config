@@ -1,6 +1,20 @@
-# Building from Source
+# Development Setup
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `cargo test`
+5. Submit a pull request
 
 See [CONTRIBUTING](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/CONTRIBUTING.md) file for details on branching and commit strategy.  
+
+
+# Testing
+Ensure all tests pass before submitting changes:
+```bash
+cargo test --lib
+cargo test --tests
+```
+# Building from Source
 
 ## Development Build
 ```bash
@@ -51,18 +65,4 @@ pro_audio_config/
 ├── install.sh           # Installation script
 ├── uninstall.sh         # Uninstallation script
 └── Cargo.toml           # Project dependencies
-```
-
-# Development Setup
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `cargo test`
-5. Submit a pull request
-
-# Testing
-Ensure all tests pass before submitting changes:
-```bash
-cargo test --lib
-cargo test --tests
 ```
