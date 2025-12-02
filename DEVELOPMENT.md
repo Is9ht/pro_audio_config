@@ -1,4 +1,8 @@
+# About
+This guide details setup and development workflow for contributors.
+
 # Development Setup
+
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
@@ -53,7 +57,7 @@ cargo build --release
 ## Debugging
 
 ```bash
-# in ./target/release or ./target/debug
+# in ./target/release or ./target/debug tun:
 ./pro_audio_config
 ```
 **Tools**:
