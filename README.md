@@ -140,47 +140,6 @@ Each tab maintains independent settings, allowing you to optimize input and outp
 - 4096 samples (85.3ms @48kHz) 
 - 8192 samples (170.7ms @48kHz)
 
-## Building from Source
-
-### Development Build
-```bash
-git clone https://github.com/Peter-L-SVK/pro-audio-config
-cd pro_audio_config
-cargo build
-```
-
-### Release Build
-```bash
-cargo build --release
-```
-
-### Running Tests
-```bash
-cargo test
-```
-
-## Project Structure
-
-```
-pro_audio_config/
-├── src/
-│   ├── main.rs          # Application entry point
-│   ├── lib.rs           # Library definitions and exports
-│   ├── audio.rs         # Audio device detection and settings
-│   ├── config.rs        # PipeWire/WirePlumber configuration
-│   ├── ui.rs            # GTK user interface with tabbed interface
-│   └── utils.rs         # Utility functions
-├── tests/
-│   ├── integration.rs   # Main integration tests
-│   ├── audio_integration.rs # Audio-specific integration tests
-│   ├── ui_integration.rs    # UI integration tests
-│   └── common.rs        # Test utilities
-├── icons/               # Application icons (multiple sizes)
-├── install.sh           # Installation script
-├── uninstall.sh         # Uninstallation script
-└── Cargo.toml           # Project dependencies
-```
-
 ## Technical Details
 
 ### Architecture
@@ -207,6 +166,9 @@ pro_audio_config/
 - **Legacy**: WirePlumber Lua configuration (versions < 0.5)
 - **Emergency**: Direct modification of main pipewire.conf
 
+## Development and testing
+See [DEVELOPMENT](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/DEVELOPMENT.md) file for details.  
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit pull requests, report bugs, or suggest new features.  
@@ -221,23 +183,9 @@ Please open an issue or pull request for any:
 - Feature suggestions
 - Documentation improvements
 
-### Development Setup
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `cargo test`
-5. Submit a pull request
-
-### Testing
-Ensure all tests pass before submitting changes:
-```bash
-cargo test --lib
-cargo test --tests
-```
-
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
 
 ## Support
 
