@@ -1,37 +1,17 @@
-# Building from Source
+# Development
+This guide details setup and development workflow for contributors.
+
+## Development Setup
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `cargo test`
+5. Submit a pull request
 
 See [CONTRIBUTING](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/CONTRIBUTING.md) file for details on branching and commit strategy.  
 
-## Development Build
-```bash
-git clone https://github.com/Peter-L-SVK/pro-audio-config
-cd pro_audio_config
-cargo build
-```
-
-## Release Build
-```bash
-cargo build --release
-```
-
-## Debugging
-
-```bash
-# in ./target/release or ./target/debug
-./pro_audio_config
-```
-**Tools**:
-```sh
-journalctl
-pw-cli
-wireplumber
-```
-## Running Tests
-```bash
-cargo test
-```
-
-## Project Structure
+### Project Structure
 
 ```
 pro_audio_config/
@@ -52,17 +32,39 @@ pro_audio_config/
 ├── uninstall.sh         # Uninstallation script
 └── Cargo.toml           # Project dependencies
 ```
-
-# Development Setup
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `cargo test`
-5. Submit a pull request
-
-# Testing
+## Testing
 Ensure all tests pass before submitting changes:
 ```bash
 cargo test --lib
 cargo test --tests
+```
+## Building from Source
+
+### Development Build
+```bash
+git clone https://github.com/Peter-L-SVK/pro-audio-config
+cd pro_audio_config
+cargo build
+```
+
+### Release Build
+```bash
+cargo build --release
+```
+
+### Debugging
+
+```bash
+# in ./target/release or ./target/debug tun:
+./pro_audio_config
+```
+**Tools**:
+```sh
+journalctl
+pw-cli
+wireplumber
+```
+### Running Tests
+```bash
+cargo test
 ```
