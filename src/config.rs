@@ -636,7 +636,7 @@ context.properties = {{
     # DEBUG: Add properties to verify our config is loaded
     pro-audio-config.rate = {}
     pro-audio-config.quantum = {}
-    pro-audio-config.version = "1.8"
+    pro-audio-config.version = "1.7"
 }}
 
 # Real-time module
@@ -2199,7 +2199,7 @@ context.properties = {{
     # Debug properties to verify our config is loaded
     pro-audio-config.rate = {}
     pro-audio-config.quantum = {}
-    pro-audio-config.version = "1.8"
+    pro-audio-config.version = "1.7
     pro-audio-config.exclusive = true
     pro-audio-config.target-app = "{}"
     pro-audio-config.target-process = "{}"

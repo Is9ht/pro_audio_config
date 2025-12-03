@@ -73,7 +73,7 @@ As audio companies improve their Linux driver support and PipeWire continues to 
 ### Quick Install
 ```bash
 git clone https://github.com/Peter-L-SVK/pro_audio_config
-cd pro-audio-config
+cd pro_audio_config
 ./install.sh
 ```
 
