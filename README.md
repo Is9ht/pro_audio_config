@@ -164,8 +164,10 @@ Each tab maintains independent settings, allowing you to optimize input and outp
 - **Legacy**: WirePlumber Lua configuration (versions < 0.5)
 - **Emergency**: Direct modification of main pipewire.conf
 
+
 ## Development and testing
 See [DEVELOPMENT](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/DEVELOPMENT.md) file for details.  
+
 
 ## Contributing
 
@@ -181,9 +183,6 @@ Please open an issue or pull request for any:
 - Feature suggestions
 - Documentation improvements
 
-## License
-
-This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
 
 ## Support
 
@@ -191,6 +190,7 @@ For support and questions:
 - Open an issue on GitHub
 - Check the documentation
 - Review existing issues for similar problems
+
 
 ## Requirements
 
@@ -212,6 +212,11 @@ For support and questions:
 - PipeWire developers for the modern audio system
 - GTK team for the GUI toolkit
 - Rust community for excellent libraries and tools
+
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
 
 ---
 **Stop fighting config files. Start making great audio.**
