@@ -32,6 +32,37 @@ pro_audio_config/
 ├── uninstall.sh         # Uninstallation script
 └── Cargo.toml           # Project dependencies
 ```
+
+## Tools and Configuration
+
+### Pre-commit Hook
+
+A pre-commit hook is provided (`pre-commit`) to ensure code style consistency by automatically formatting code and removing trailing whitespace before commits:
+
+```sh
+# In the project root
+cp pre-commit .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+This hook will:
+- Remove trailing whitespace from all Rust files (`*.rs`)
+- Run `cargo fmt --all` for automatic code formatting
+- Add formatted files to the current commit
+
+You are encouraged to set up this pre-commit hook after cloning the repository.
+
+### Linting with Clippy
+
+Rust code should also pass linter checks using [Clippy](https://github.com/rust-lang/rust-clippy).
+- Clippy is run automatically in CI; configuration is located at [./github/workflows/rust-ci.yaml](./github/workflows/rust-ci.yaml).
+- You can manually run Clippy via:
+
+  ```bash
+  cargo clippy
+  ```
+  
+- Please ensure no errors are introduced by your changes (warning may occure since linting is not perfect).
+
 ## Testing
 Ensure all tests pass before submitting changes:
 ```bash
@@ -42,7 +73,7 @@ cargo test --tests
 
 ### Development Build
 ```bash
-git clone https://github.com/Peter-L-SVK/pro-audio-config
+git clone https://github.com/Peter-L-SVK/pro_audio_config
 cd pro_audio_config
 cargo build
 ```
@@ -55,7 +86,7 @@ cargo build --release
 ### Debugging
 
 ```bash
-# in ./target/release or ./target/debug tun:
+# in ./target/release or ./target/debug run:
 ./pro_audio_config
 ```
 **Tools**:

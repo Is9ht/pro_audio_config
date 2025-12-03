@@ -55,26 +55,24 @@ This tool is designed to grow with PipeWire and Linux audio:
 
 As audio companies improve their Linux driver support and PipeWire continues to evolve, this tool will be ready to leverage those advancements immediately.
 
-## Requirements
 
-### System Dependencies
-- PipeWire (recommended) or PulseAudio
-- WirePlumber
-- ALSA utilities
-- pkexec (for privilege escalation)
+## Roadmap
 
-### Rust Toolchain
-- Rust 1.85.0 or newer
-- Cargo
+- [ ] Package manager support (RPM/DEB/Flatpak)
+- [x] Setting all available devices in one session
+- [x] Separate input/output configuration tabs
+- [x] User vs system-wide configuration scope
+- [ ] Additional audio backends (JACK)
+- [ ] Preset configurations
+- [x] Advanced audio routing
+- [ ] Real-time audio monitoring
 
-### GTK Development Libraries
-- gtk3-devel (or equivalent for your distribution)
 
 ## Installation
 
 ### Quick Install
 ```bash
-git clone https://github.com/Peter-L-SVK/pro-audio-config
+git clone https://github.com/Peter-L-SVK/pro_audio_config
 cd pro-audio-config
 ./install.sh
 ```
@@ -83,7 +81,7 @@ cd pro-audio-config
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/Peter-L-SVK/pro-audio-config
+git clone https://github.com/Peter-L-SVK/pro_audio_config
 cd pro_audio_config
 ```
 
@@ -194,16 +192,20 @@ For support and questions:
 - Check the documentation
 - Review existing issues for similar problems
 
-## Roadmap
+## Requirements
 
-- [ ] Package manager support (RPM/DEB/Flatpak)
-- [x] Setting all available devices in one session
-- [x] Separate input/output configuration tabs
-- [x] User vs system-wide configuration scope
-- [ ] Additional audio backends (JACK)
-- [ ] Preset configurations
-- [x] Advanced audio routing
-- [ ] Real-time audio monitoring
+### System Dependencies
+- PipeWire (recommended) or PulseAudio
+- WirePlumber
+- ALSA utilities
+- pkexec (for privilege escalation)
+
+### Rust Toolchain
+- Rust 1.85.0 or newer
+- Cargo
+
+### GTK Development Libraries
+- gtk3-devel (or equivalent for your distribution)
 
 ## Acknowledgments
 
