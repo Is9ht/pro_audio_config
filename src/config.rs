@@ -2528,7 +2528,7 @@ mod tests {
             device_id: "default".to_string(),
         };
 
-        let config = generate_legacy_wireplumber_config(&settings, "input");
+        let config = generate_wireplumber_config(&settings, "input");
 
         assert!(config.contains("48000"));
         assert!(config.contains("1024"));
