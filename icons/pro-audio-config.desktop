@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Pro Audio Config
+Comment=Configure professional audio settings
+Exec=/usr/local/bin/pro-audio-config
+Icon=pro-audio-config
+Categories=Audio;Settings;
+Terminal=false
+StartupNotify=true

@@ -102,7 +102,7 @@ cd pro_audio_config
 2. Build and install:
 ```bash
 cargo build --release
-sudo cp target/release/pro-audio-config /usr/local/bin/
+sudo cp target/release/pro_audio_config /usr/local/bin/
 ```
 
 ### Uninstall
