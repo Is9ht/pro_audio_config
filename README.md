@@ -79,7 +79,7 @@ As audio companies improve their Linux driver support and PipeWire continues to 
 - [ ] Additional audio backends (JACK)
 - [ ] Preset configurations
 - [x] Advanced audio routing
-- [ ] Real-time audio monitoring
+- [x] Real-time audio monitoring
 
 
 ## Installation
@@ -101,7 +101,7 @@ cd pro_audio_config
 
 2. Build and install:
 ```bash
-cargo build --release
+cargo build --release --features pipewire-monitoring
 sudo cp target/release/pro_audio_config /usr/local/bin/
 ```
 
